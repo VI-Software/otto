@@ -149,8 +149,7 @@ class FileController {
         metadata: file.metadata,
         url: `/files/${file.id}`,
         downloadUrl: `/files/${file.id}?download=true`,
-        thumbnailUrl: file.metadata?.hasThumbnail ? `/files/${file.id}?thumbnail=true` : null,
-        publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}/${file.original_name}` : null,
+        thumbnailUrl: file.metadata?.hasThumbnail ? `/files/${file.id}?thumbnail=true` : null,        publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}` : null,
         legacyPublicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
       }
     });
@@ -274,7 +273,7 @@ class FileController {
           uploadedAt: file.created_at,
           accessCount: file.access_count,
           url: `/files/${file.id}`,
-          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}/${file.original_name}` : null
+          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}` : null
         })),
         uploaderId,
         count: files.length,
@@ -370,18 +369,17 @@ class FileController {
       throw error;
     }
   });
-
   /**
-   * Serve public file by context, hash, and filename
+   * Serve public file by context and hash
    * Content-addressable URLs prevent collisions
    * No authentication required for public files
    */
   servePublicFileByHash = asyncHandler(async (req, res) => {
-    const { context, hash, filename } = req.params;
+    const { context, hash } = req.params;
     const { download, thumbnail } = req.query;
 
-    // Get public file record by hash
-    const file = await FileService.getPublicFileByHash(hash, context, filename);
+    // Get public file record by hash (without filename)
+    const file = await FileService.getPublicFileByHash(hash, context);
     
     if (!file) {
       return res.status(404).json({
@@ -430,7 +428,6 @@ class FileController {
           fileId: file.id, 
           context, 
           hash,
-          filename, 
           error: error.message 
         });
         if (!res.headersSent) {
@@ -445,7 +442,6 @@ class FileController {
       logger.error('Failed to serve public file by hash', { 
         context, 
         hash,
-        filename, 
         error: error.message 
       });
       

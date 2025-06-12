@@ -50,17 +50,12 @@ const storage = multer.diskStorage({
     }
     
     cb(null, contextDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename with timestamp and random string
-    const timestamp = Date.now();
-    const randomString = crypto.randomBytes(8).toString('hex');
+  },  filename: (req, file, cb) => {
+    // Generate clean filename with UUID and extension only
+    const fileId = crypto.randomUUID();
     const extension = path.extname(file.originalname).toLowerCase();
-    const basename = path.basename(file.originalname, extension)
-      .replace(/[^a-zA-Z0-9-_]/g, '_')
-      .substring(0, 50);
     
-    const filename = `${timestamp}_${randomString}_${basename}${extension}`;
+    const filename = `${fileId}${extension}`;
     cb(null, filename);
   }
 });

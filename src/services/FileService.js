@@ -456,18 +456,16 @@ class FileService {
       });
       throw error;
     }
-  }
-  /**
-   * Get public file by hash, context, and filename
+  }  /**
+   * Get public file by hash and context
    * @param {string} hash - File hash (first 12 characters)
    * @param {string} context - Upload context
-   * @param {string} filename - Original filename
    * @param {Object} options - Options
    * @returns {Object|null} File record
    */
-  async getPublicFileByHash(hash, context, filename, options = {}) {
+  async getPublicFileByHash(hash, context, options = {}) {
     try {
-      const file = await FileModel.findPublicByHashAndContext(hash, context, filename);
+      const file = await FileModel.findPublicByHashAndContext(hash, context);
       
       if (file && options.trackAccess !== false) {
         // Update access count asynchronously
@@ -484,7 +482,6 @@ class FileService {
       logger.error('Failed to get public file by hash', { 
         hash, 
         context, 
-        filename, 
         error: error.message 
       });
       throw error;
