@@ -458,6 +458,40 @@ class FileService {
     }
   }
   /**
+   * Get public file by hash, context, and filename
+   * @param {string} hash - File hash (first 12 characters)
+   * @param {string} context - Upload context
+   * @param {string} filename - Original filename
+   * @param {Object} options - Options
+   * @returns {Object|null} File record
+   */
+  async getPublicFileByHash(hash, context, filename, options = {}) {
+    try {
+      const file = await FileModel.findPublicByHashAndContext(hash, context, filename);
+      
+      if (file && options.trackAccess !== false) {
+        // Update access count asynchronously
+        FileModel.updateAccessCount(file.id).catch(err => {
+          logger.warn('Failed to update access count', { 
+            fileId: file.id, 
+            error: err.message 
+          });
+        });
+      }
+      
+      return file;
+    } catch (error) {
+      logger.error('Failed to get public file by hash', { 
+        hash, 
+        context, 
+        filename, 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Get public file by ID
    * @param {string} fileId - File ID
    * @param {Object} options - Options

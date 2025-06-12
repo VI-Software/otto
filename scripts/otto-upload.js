@@ -31,6 +31,8 @@ import fetch from 'node-fetch';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { fileTypeFromFile } from 'file-type';
+import { spawn } from 'child_process';
+import { promisify } from 'util';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,7 +153,6 @@ class OttoUploader {
     this.log('Upload token generated successfully', 'debug');
     return result.data;
   }
-
   async uploadFiles(files, options = {}) {
     const {
       context = 'general',
@@ -177,7 +178,124 @@ class OttoUploader {
 
     this.log(`Uploading ${files.length} file(s) to context: ${context}`, 'info');
 
-    const form = new FormData();    // Add files to form data
+    // Try curl first for better Cloudflare compatibility
+    if (this.shouldUseCurl()) {
+      return await this.uploadWithCurl(files, {
+        context,
+        uploadedBy,
+        generateThumbnails,
+        metadata,
+        authToken,
+        useUploadToken
+      });
+    }
+
+    // Fallback to node-fetch
+    return await this.uploadWithNodeFetch(files, {
+      context,
+      uploadedBy,
+      generateThumbnails,
+      metadata,
+      authToken,
+      useUploadToken
+    });
+  }
+
+  shouldUseCurl() {
+    // Use curl for remote URLs Cloudflare compatibility)
+    return !this.baseUrl.includes('localhost') && !this.baseUrl.includes('127.0.0.1');
+  }
+
+  async uploadWithCurl(files, options) {
+    const { context, uploadedBy, generateThumbnails, metadata, authToken, useUploadToken } = options;
+
+    try {
+      // Build curl command
+      const curlArgs = [
+        '-X', 'POST',
+        '-H', `Authorization: Bearer ${authToken}`,
+        '-s', // Silent mode
+        '--fail-with-body' // Return error body on failure
+      ];
+
+      // Add files
+      for (const file of files) {
+        curlArgs.push('-F', `files=@${file.path}`);
+      }
+
+      // Add form fields
+      if (!useUploadToken) {
+        curlArgs.push('-F', `context=${context}`);
+        curlArgs.push('-F', `uploadedBy=${uploadedBy}`);
+      }
+
+      if (generateThumbnails) {
+        curlArgs.push('-F', 'generateThumbnails=true');
+      }
+
+      if (metadata) {
+        curlArgs.push('-F', `metadata=${JSON.stringify(metadata)}`);
+      }
+
+      curlArgs.push(`${this.baseUrl}/upload`);
+
+      this.log('Using curl for upload (better tunnel compatibility)', 'debug');
+      
+      const result = await this.executeCurl(curlArgs);
+      const response = JSON.parse(result);
+      
+      if (response.success) {
+        return response.data;
+      } else {
+        throw new Error(response.error || 'Upload failed');
+      }
+
+    } catch (error) {
+      this.log(`Curl upload failed: ${error.message}`, 'error');
+      this.log('Falling back to node-fetch...', 'debug');
+      
+      // Fallback to node-fetch
+      return await this.uploadWithNodeFetch(files, options);
+    }
+  }
+
+  async executeCurl(args) {
+    return new Promise((resolve, reject) => {
+      const curl = spawn('curl', args, {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      curl.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      curl.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      curl.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout);
+        } else {
+          reject(new Error(`curl failed with code ${code}: ${stderr}`));
+        }
+      });
+
+      curl.on('error', (error) => {
+        reject(new Error(`curl execution failed: ${error.message}`));
+      });
+    });
+  }
+
+  async uploadWithNodeFetch(files, options) {
+    const { context, uploadedBy, generateThumbnails, metadata, authToken, useUploadToken } = options;
+
+    const form = new FormData();
+    
+    // Add files to form data
     for (const file of files) {
       form.append('files', fs.createReadStream(file.path), {
         filename: file.name,
@@ -199,7 +317,8 @@ class OttoUploader {
       form.append('metadata', JSON.stringify(metadata));
     }
 
-    try {      const response = await fetch(`${this.baseUrl}/upload`, {
+    try {
+      const response = await fetch(`${this.baseUrl}/upload`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,

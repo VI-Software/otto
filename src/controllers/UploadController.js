@@ -122,7 +122,7 @@ class UploadController {  generateUploadToken = asyncHandler(async (req, res) =>
       uploadedBy,
       context,
       fileIds: processedFiles.map(f => f.id)
-    });    res.status(201).json({
+    });        res.status(201).json({
       success: true,
       data: {
         files: processedFiles.map(file => ({
@@ -135,7 +135,8 @@ class UploadController {  generateUploadToken = asyncHandler(async (req, res) =>
           uploadedAt: file.created_at,
           isPublic: file.is_public,
           url: `/files/${file.id}`,
-          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
+          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}/${file.original_name}` : null,
+          shortPublicUrl: file.is_public ? `/p/${file.upload_context}/${file.file_hash.substring(0, 12)}/${file.original_name}` : null
         })),
         count: processedFiles.length,
         totalSize: processedFiles.reduce((sum, file) => sum + file.file_size, 0)
@@ -187,7 +188,7 @@ class UploadController {  generateUploadToken = asyncHandler(async (req, res) =>
           uploadedAt: file.created_at,
           accessCount: file.access_count,
           url: `/files/${file.id}`,
-          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
+          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}/${file.original_name}` : null
         })),
         context,
         count: files.length,

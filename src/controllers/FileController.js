@@ -132,9 +132,7 @@ class FileController {
         error: 'Access denied',
         code: 'ACCESS_DENIED'
       });
-    }
-
-    res.json({
+    }    res.json({
       success: true,
       data: {
         id: file.id,
@@ -148,10 +146,12 @@ class FileController {
         uploadedAt: file.created_at,
         lastAccessedAt: file.last_accessed_at,
         accessCount: file.access_count,
-        metadata: file.metadata,        url: `/files/${file.id}`,
+        metadata: file.metadata,
+        url: `/files/${file.id}`,
         downloadUrl: `/files/${file.id}?download=true`,
         thumbnailUrl: file.metadata?.hasThumbnail ? `/files/${file.id}?thumbnail=true` : null,
-        publicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
+        publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}/${file.original_name}` : null,
+        legacyPublicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
       }
     });
   });
@@ -264,8 +264,7 @@ class FileController {
 
     res.json({
       success: true,
-      data: {
-        files: files.map(file => ({
+      data: {        files: files.map(file => ({
           id: file.id,
           filename: file.filename,
           originalName: file.original_name,
@@ -275,7 +274,7 @@ class FileController {
           uploadedAt: file.created_at,
           accessCount: file.access_count,
           url: `/files/${file.id}`,
-          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
+          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}/${file.original_name}` : null
         })),
         uploaderId,
         count: files.length,
@@ -356,6 +355,191 @@ class FileController {
 
     } catch (error) {
       logger.error('Failed to serve public file', { 
+        context, 
+        filename, 
+        error: error.message 
+      });
+      
+      if (error.message === 'File not found on disk') {
+        return res.status(404).json({
+          error: 'Public file not found on disk',
+          code: 'PUBLIC_FILE_NOT_FOUND_ON_DISK'
+        });
+      }
+
+      throw error;
+    }
+  });
+
+  /**
+   * Serve public file by context, hash, and filename
+   * Content-addressable URLs prevent collisions
+   * No authentication required for public files
+   */
+  servePublicFileByHash = asyncHandler(async (req, res) => {
+    const { context, hash, filename } = req.params;
+    const { download, thumbnail } = req.query;
+
+    // Get public file record by hash
+    const file = await FileService.getPublicFileByHash(hash, context, filename);
+    
+    if (!file) {
+      return res.status(404).json({
+        error: 'Public file not found',
+        code: 'PUBLIC_FILE_NOT_FOUND'
+      });
+    }
+
+    try {
+      let filePath = file.file_path;
+      let mimeType = file.mime_type;
+
+      // Serve thumbnail if requested
+      if (thumbnail === 'true') {
+        const thumbnailPath = FileService.getThumbnailPath(file.file_path, file.id);
+        if (fs.existsSync(thumbnailPath)) {
+          filePath = thumbnailPath;
+          mimeType = 'image/webp';
+        }
+      }
+
+      const fileStream = FileService.getFileStream(filePath);
+      
+      // Set appropriate headers for public files
+      res.set({
+        'Content-Type': mimeType,
+        'Content-Length': fs.statSync(filePath).size,
+        'Cache-Control': 'public, max-age=31536000, immutable', // 1 year cache (content-addressable)
+        'X-File-ID': file.id,
+        'X-File-Hash': file.file_hash,
+        'X-Public-File': 'true'
+      });
+
+      // Force download if requested
+      if (download === 'true') {
+        res.set('Content-Disposition', `attachment; filename="${file.original_name}"`);
+      } else {
+        res.set('Content-Disposition', `inline; filename="${file.original_name}"`);
+      }
+
+      // Pipe file stream to response
+      fileStream.pipe(res);
+
+      fileStream.on('error', (error) => {
+        logger.error('Public file stream error', { 
+          fileId: file.id, 
+          context, 
+          hash,
+          filename, 
+          error: error.message 
+        });
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: 'Failed to serve public file',
+            code: 'PUBLIC_FILE_STREAM_ERROR'
+          });
+        }
+      });
+
+    } catch (error) {
+      logger.error('Failed to serve public file by hash', { 
+        context, 
+        hash,
+        filename, 
+        error: error.message 
+      });
+      
+      if (error.message === 'File not found on disk') {
+        return res.status(404).json({
+          error: 'Public file not found on disk',
+          code: 'PUBLIC_FILE_NOT_FOUND_ON_DISK'
+        });
+      }
+
+      throw error;
+    }
+  });
+
+  /**
+   * Serve public file by context and filename (LEGACY - backward compatibility)
+   * Returns the most recent file with that name
+   * No authentication required for public files
+   */
+  servePublicFileLegacy = asyncHandler(async (req, res) => {
+    const { context, filename } = req.params;
+    const { download, thumbnail } = req.query;
+
+    // Get public file record (latest)
+    const file = await FileService.getPublicFileByContextAndFilename(context, filename);
+    
+    if (!file) {
+      return res.status(404).json({
+        error: 'Public file not found',
+        code: 'PUBLIC_FILE_NOT_FOUND'
+      });
+    }
+
+    // Log legacy access for monitoring
+    logger.warn('Legacy public file access - consider using hash-based URLs', {
+      context,
+      filename,
+      fileId: file.id,
+      newUrl: `/public/${context}/${file.file_hash.substring(0, 12)}/${filename}`
+    });
+
+    try {
+      let filePath = file.file_path;
+      let mimeType = file.mime_type;
+
+      // Serve thumbnail if requested
+      if (thumbnail === 'true') {
+        const thumbnailPath = FileService.getThumbnailPath(file.file_path, file.id);
+        if (fs.existsSync(thumbnailPath)) {
+          filePath = thumbnailPath;
+          mimeType = 'image/webp';
+        }
+      }
+
+      const fileStream = FileService.getFileStream(filePath);
+      
+      // Set appropriate headers for public files
+      res.set({
+        'Content-Type': mimeType,
+        'Content-Length': fs.statSync(filePath).size,
+        'Cache-Control': 'public, max-age=86400', // 24 hours cache (filename-based, not immutable)
+        'X-File-ID': file.id,
+        'X-Legacy-Access': 'true',
+        'X-Recommended-URL': `/public/${context}/${file.file_hash.substring(0, 12)}/${filename}`,
+        'X-Public-File': 'true'
+      });
+
+      // Force download if requested
+      if (download === 'true') {
+        res.set('Content-Disposition', `attachment; filename="${file.original_name}"`);
+      } else {
+        res.set('Content-Disposition', `inline; filename="${file.original_name}"`);
+      }
+
+      // Pipe file stream to response
+      fileStream.pipe(res);
+
+      fileStream.on('error', (error) => {
+        logger.error('Legacy public file stream error', { 
+          fileId: file.id, 
+          context, 
+          filename, 
+          error: error.message 
+        });
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: 'Failed to serve public file',
+            code: 'PUBLIC_FILE_STREAM_ERROR'
+          });
+        }
+      });
+
+    } catch (error) {
+      logger.error('Failed to serve legacy public file', { 
         context, 
         filename, 
         error: error.message 
