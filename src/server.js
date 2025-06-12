@@ -47,30 +47,12 @@ app.use(helmet({
   },
 }));
 
-// CORS configuration for internal services only
+// CORS configuration - Allow all origins for CDN compatibility
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or server-to-server)
-    if (!origin) return callback(null, true);
-    
-    // Get allowed origins from environment variable, fallback to defaults
-    const defaultOrigins = [
-      'http://localhost:3000',
-      'https://visof',
-      'http://localhost:4000'
-    ];
-    
-    const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS 
-      ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-      : defaultOrigins;
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: false
 }));
 
 // Apply global rate limiting
