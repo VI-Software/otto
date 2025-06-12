@@ -25,7 +25,7 @@ class HomeController {  async home(req, res) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Otto - The simple and efficient CDN server</title>
+  <title>Otto - The simple and efficient file server</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -120,7 +120,7 @@ class HomeController {  async home(req, res) {
 </head>
 <body>  <div class="container">
     <h1>Otto</h1>    
-    <div class="subtitle">The simple and efficient CDN server</div>
+    <div class="subtitle">The simple and efficient file server</div>
     
     <div class="success-message">
       <p>This is the default Otto file server homepage. If you can see this page, the Otto file server is working properly.</p>
