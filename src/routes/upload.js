@@ -2,6 +2,7 @@ import express from 'express';
 import UploadController from '../controllers/UploadController.js';
 import { authenticate, authenticateService } from '../middleware/auth.js';
 import { uploadMultiple, validateFileContents, handleUploadError } from '../middleware/upload.js';
+import { uploadLimiter, authLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
@@ -10,7 +11,7 @@ const router = express.Router();
  * Generate upload token for frontend uploads
  * Requires service authentication
  */
-router.post('/token', authenticateService, UploadController.generateUploadToken);
+router.post('/token', authLimiter, authenticateService, UploadController.generateUploadToken);
 
 /**
  * POST /api/upload
@@ -20,6 +21,7 @@ router.post('/token', authenticateService, UploadController.generateUploadToken)
  * - JWT token for user uploads
  */
 router.post('/', 
+  uploadLimiter,
   authenticate,
   uploadMultiple,
   handleUploadError,

@@ -2,7 +2,6 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -16,6 +15,7 @@ import healthRoutes from './routes/health.js';
 import HomeController from './controllers/HomeController.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { globalLimiter, apiLimiter, fileLimiter } from './middleware/rateLimiter.js';
 
 // Load environment variables
 dotenv.config();
@@ -25,6 +25,15 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Set powered by header to otto
+app.use((req, res, next) => {
+  res.setHeader('X-Powered-By', 'otto');
+  next();
+});
+
+// Trust proxy for Cloudflare
+app.set('trust proxy', true);
 
 // Security middleware
 app.use(helmet({
@@ -61,18 +70,8 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  message: {
-    error: 'Too many requests from this IP, please try again later.',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use(limiter);
+// Apply global rate limiting
+app.use(globalLimiter);
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
@@ -83,12 +82,12 @@ app.use(requestLogger);
 app.get('/', HomeController.home);
 app.get('/stats', HomeController.stats);
 
-// Core routes (no /api prefix)
-app.use('/upload', uploadRoutes);
-app.use('/files', fileRoutes);
-app.use('/f', fileRoutes);
-app.use('/public', publicRoutes);
-app.use('/p', publicRoutes);
+// Core routes with specific rate limiting
+app.use('/upload', apiLimiter, uploadRoutes);
+app.use('/files', fileLimiter, fileRoutes);
+app.use('/f', fileLimiter, fileRoutes);
+app.use('/public', fileLimiter, publicRoutes);
+app.use('/p', fileLimiter, publicRoutes);
 app.use('/health', healthRoutes);
 
 // Error handling middleware
