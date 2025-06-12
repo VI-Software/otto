@@ -168,6 +168,39 @@ class FileModel {  async create(fileData) {
     }
   }
 
+  /**
+   * Find public file by hash prefix, context, and filename
+   * @param {string} hashPrefix - First 12 characters of file hash
+   * @param {string} context - Upload context
+   * @param {string} filename - Original filename
+   * @returns {Object|null} File record
+   */
+  async findPublicByHashAndContext(hashPrefix, context, filename) {
+    const query = `
+      SELECT * FROM files 
+      WHERE LEFT(file_hash, 12) = $1 
+      AND upload_context = $2 
+      AND original_name = $3 
+      AND is_public = TRUE 
+      AND deleted_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    
+    try {
+      const result = await database.query(query, [hashPrefix, context, filename]);
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error('Failed to find public file by hash and context', { 
+        error: error.message, 
+        hashPrefix,
+        context,
+        filename 
+      });
+      throw error;
+    }
+  }
+
   async updateAccessCount(id) {
     const query = `
       UPDATE files 
