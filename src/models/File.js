@@ -167,20 +167,17 @@ class FileModel {  async create(fileData) {
       throw error;
     }
   }
-
   /**
-   * Find public file by hash prefix, context, and filename
+   * Find public file by hash prefix and context
    * @param {string} hashPrefix - First 12 characters of file hash
    * @param {string} context - Upload context
-   * @param {string} filename - Original filename
    * @returns {Object|null} File record
    */
-  async findPublicByHashAndContext(hashPrefix, context, filename) {
+  async findPublicByHashAndContext(hashPrefix, context) {
     const query = `
       SELECT * FROM files 
       WHERE LEFT(file_hash, 12) = $1 
       AND upload_context = $2 
-      AND original_name = $3 
       AND is_public = TRUE 
       AND deleted_at IS NULL
       ORDER BY created_at DESC
@@ -188,14 +185,13 @@ class FileModel {  async create(fileData) {
     `;
     
     try {
-      const result = await database.query(query, [hashPrefix, context, filename]);
+      const result = await database.query(query, [hashPrefix, context]);
       return result.rows[0] || null;
     } catch (error) {
       logger.error('Failed to find public file by hash and context', { 
         error: error.message, 
         hashPrefix,
-        context,
-        filename 
+        context
       });
       throw error;
     }
