@@ -607,13 +607,6 @@ Otto is open source software licensed under the [GNU Affero General Public Licen
 
 We welcome contributions! Please see our [contributing guidelines](https://docs.visoftware.dev/vi-software/guidelines/contribution-guidelines) for details.
 
-## 📞 Support
-
-For support and questions:
-- GitHub Issues: [https://github.com/vi-software/otto/issues](https://github.com/vi-software/otto/issues)
-- Documentation: This README
-- License: AGPL-3.0
-
 ---
 
 **Otto** - Built with ❤️ by [VI Software Studio](https://github.com/vi-software)
