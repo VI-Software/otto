@@ -4,12 +4,27 @@ import FileController from '../controllers/FileController.js';
 const router = express.Router();
 
 /**
+ * GET /public/:context/:hash.:ext
+ * Serve public file by context and hash with extension
+ * Content-addressable URLs prevent collisions
+ * No authentication required
+ */
+router.get('/:context/:hash.:ext', FileController.servePublicFileByHashWithExt);
+
+/**
  * GET /public/:context/:hash
  * Serve public file by context and hash
  * Content-addressable URLs prevent collisions
  * No authentication required
  */
 router.get('/:context/:hash', FileController.servePublicFileByHash);
+
+/**
+ * GET /p/:context/:hash.:ext
+ * Short URL for public files with extension
+ * No authentication required
+ */
+router.get('/p/:context/:hash.:ext', FileController.servePublicFileByHashWithExt);
 
 /**
  * GET /p/:context/:hash

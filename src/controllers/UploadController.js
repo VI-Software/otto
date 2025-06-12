@@ -124,20 +124,27 @@ class UploadController {  generateUploadToken = asyncHandler(async (req, res) =>
       fileIds: processedFiles.map(f => f.id)
     });        res.status(201).json({
       success: true,
-      data: {
-        files: processedFiles.map(file => ({
-          id: file.id,
-          filename: file.filename,
-          originalName: file.original_name,
-          mimeType: file.mime_type,
-          fileSize: file.file_size,
-          uploadContext: file.upload_context,
-          uploadedAt: file.created_at,
-          isPublic: file.is_public,
-          url: `/files/${file.id}`,
-          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}` : null,
-          shortPublicUrl: file.is_public ? `/p/${file.upload_context}/${file.file_hash.substring(0, 12)}` : null
-        })),
+      data: {        files: processedFiles.map(file => {
+          const hashPrefix = file.file_hash.substring(0, 12);
+          const fileExt = file.original_name.split('.').pop().toLowerCase();
+          
+          return {
+            id: file.id,
+            filename: file.filename,
+            originalName: file.original_name,
+            mimeType: file.mime_type,
+            fileSize: file.file_size,
+            uploadContext: file.upload_context,
+            uploadedAt: file.created_at,
+            isPublic: file.is_public,
+            url: `/files/${file.id}`,
+            publicUrl: file.is_public ? `/public/${file.upload_context}/${hashPrefix}` : null,
+            publicUrlWithExt: file.is_public ? `/public/${file.upload_context}/${hashPrefix}.${fileExt}` : null,
+            shortPublicUrl: file.is_public ? `/p/${file.upload_context}/${hashPrefix}` : null,
+            shortPublicUrlWithExt: file.is_public ? `/p/${file.upload_context}/${hashPrefix}.${fileExt}` : null,
+            legacyPublicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
+          };
+        }),
         count: processedFiles.length,
         totalSize: processedFiles.reduce((sum, file) => sum + file.file_size, 0)
       }
@@ -173,23 +180,30 @@ class UploadController {  generateUploadToken = asyncHandler(async (req, res) =>
     const files = await FileService.getFilesByContext(context, {
       limit: parseInt(limit),
       offset: parseInt(offset)
-    });
-
-    res.json({
+    });    res.json({
       success: true,
-      data: {        files: files.map(file => ({
-          id: file.id,
-          filename: file.filename,
-          originalName: file.original_name,
-          mimeType: file.mime_type,
-          fileSize: file.file_size,
-          uploadContext: file.upload_context,
-          uploadedBy: file.uploaded_by,
-          uploadedAt: file.created_at,
-          accessCount: file.access_count,
-          url: `/files/${file.id}`,
-          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}/${file.original_name}` : null
-        })),
+      data: {        files: files.map(file => {
+          const hashPrefix = file.file_hash.substring(0, 12);
+          const fileExt = file.original_name.split('.').pop().toLowerCase();
+          
+          return {
+            id: file.id,
+            filename: file.filename,
+            originalName: file.original_name,
+            mimeType: file.mime_type,
+            fileSize: file.file_size,
+            uploadContext: file.upload_context,
+            uploadedBy: file.uploaded_by,
+            uploadedAt: file.created_at,
+            accessCount: file.access_count,
+            url: `/files/${file.id}`,
+            publicUrl: file.is_public ? `/public/${file.upload_context}/${hashPrefix}` : null,
+            publicUrlWithExt: file.is_public ? `/public/${file.upload_context}/${hashPrefix}.${fileExt}` : null,
+            shortPublicUrl: file.is_public ? `/p/${file.upload_context}/${hashPrefix}` : null,
+            shortPublicUrlWithExt: file.is_public ? `/p/${file.upload_context}/${hashPrefix}.${fileExt}` : null,
+            legacyPublicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
+          };
+        }),
         context,
         count: files.length,
         pagination: {

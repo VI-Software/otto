@@ -149,7 +149,19 @@ class FileController {
         metadata: file.metadata,
         url: `/files/${file.id}`,
         downloadUrl: `/files/${file.id}?download=true`,
-        thumbnailUrl: file.metadata?.hasThumbnail ? `/files/${file.id}?thumbnail=true` : null,        publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}` : null,
+        thumbnailUrl: file.metadata?.hasThumbnail ? `/files/${file.id}?thumbnail=true` : null,
+        publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}` : null,
+        publicUrlWithExt: file.is_public ? (() => {
+          const hashPrefix = file.file_hash.substring(0, 12);
+          const fileExt = file.original_name.split('.').pop().toLowerCase();
+          return `/public/${file.upload_context}/${hashPrefix}.${fileExt}`;
+        })() : null,
+        shortPublicUrl: file.is_public ? `/p/${file.upload_context}/${file.file_hash.substring(0, 12)}` : null,
+        shortPublicUrlWithExt: file.is_public ? (() => {
+          const hashPrefix = file.file_hash.substring(0, 12);
+          const fileExt = file.original_name.split('.').pop().toLowerCase();
+          return `/p/${file.upload_context}/${hashPrefix}.${fileExt}`;
+        })() : null,
         legacyPublicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
       }
     });
@@ -259,22 +271,29 @@ class FileController {
     const files = await FileService.getFilesByUploader(uploaderId, {
       limit: parseInt(limit),
       offset: parseInt(offset)
-    });
-
-    res.json({
+    });    res.json({
       success: true,
-      data: {        files: files.map(file => ({
-          id: file.id,
-          filename: file.filename,
-          originalName: file.original_name,
-          mimeType: file.mime_type,
-          fileSize: file.file_size,
-          uploadContext: file.upload_context,
-          uploadedAt: file.created_at,
-          accessCount: file.access_count,
-          url: `/files/${file.id}`,
-          publicUrl: file.is_public ? `/public/${file.upload_context}/${file.file_hash.substring(0, 12)}` : null
-        })),
+      data: {        files: files.map(file => {
+          const hashPrefix = file.file_hash.substring(0, 12);
+          const fileExt = file.original_name.split('.').pop().toLowerCase();
+          
+          return {
+            id: file.id,
+            filename: file.filename,
+            originalName: file.original_name,
+            mimeType: file.mime_type,
+            fileSize: file.file_size,
+            uploadContext: file.upload_context,
+            uploadedAt: file.created_at,
+            accessCount: file.access_count,
+            url: `/files/${file.id}`,
+            publicUrl: file.is_public ? `/public/${file.upload_context}/${hashPrefix}` : null,
+            publicUrlWithExt: file.is_public ? `/public/${file.upload_context}/${hashPrefix}.${fileExt}` : null,
+            shortPublicUrl: file.is_public ? `/p/${file.upload_context}/${hashPrefix}` : null,
+            shortPublicUrlWithExt: file.is_public ? `/p/${file.upload_context}/${hashPrefix}.${fileExt}` : null,
+            legacyPublicUrl: file.is_public ? `/public/${file.upload_context}/${file.original_name}` : null
+          };
+        }),
         uploaderId,
         count: files.length,
         pagination: {
@@ -368,9 +387,8 @@ class FileController {
 
       throw error;
     }
-  });
-  /**
-   * Serve public file by context and hash
+  });  /**
+   * Serve public file by context and hash (without extension)
    * Content-addressable URLs prevent collisions
    * No authentication required for public files
    */
@@ -387,6 +405,46 @@ class FileController {
         code: 'PUBLIC_FILE_NOT_FOUND'
       });
     }
+
+    this.servePublicFileResponse(file, req, res, { context, hash });
+  });
+
+  /**
+   * Serve public file by context and hash with extension
+   * Content-addressable URLs prevent collisions
+   * No authentication required for public files
+   */
+  servePublicFileByHashWithExt = asyncHandler(async (req, res) => {
+    const { context, hash, ext } = req.params;
+    const { download, thumbnail } = req.query;
+
+    // Get public file record by hash and verify extension matches
+    const file = await FileService.getPublicFileByHash(hash, context);
+    
+    if (!file) {
+      return res.status(404).json({
+        error: 'Public file not found',
+        code: 'PUBLIC_FILE_NOT_FOUND'
+      });
+    }
+
+    // Verify the extension matches the file's actual extension
+    const actualExt = path.extname(file.original_name).substring(1).toLowerCase();
+    if (ext.toLowerCase() !== actualExt) {
+      return res.status(404).json({
+        error: 'File extension does not match',
+        code: 'EXTENSION_MISMATCH'
+      });
+    }
+
+    this.servePublicFileResponse(file, req, res, { context, hash, ext });
+  });
+
+  /**
+   * Common response handler for public files
+   */
+  servePublicFileResponse = (file, req, res, routeParams) => {
+    const { download, thumbnail } = req.query;
 
     try {
       let filePath = file.file_path;
@@ -410,7 +468,8 @@ class FileController {
         'Cache-Control': 'public, max-age=31536000, immutable', // 1 year cache (content-addressable)
         'X-File-ID': file.id,
         'X-File-Hash': file.file_hash,
-        'X-Public-File': 'true'
+        'X-Public-File': 'true',
+        'ETag': `"${file.file_hash}"` // Use file hash as ETag for better caching
       });
 
       // Force download if requested
@@ -426,8 +485,7 @@ class FileController {
       fileStream.on('error', (error) => {
         logger.error('Public file stream error', { 
           fileId: file.id, 
-          context, 
-          hash,
+          ...routeParams,
           error: error.message 
         });
         if (!res.headersSent) {
@@ -439,9 +497,8 @@ class FileController {
       });
 
     } catch (error) {
-      logger.error('Failed to serve public file by hash', { 
-        context, 
-        hash,
+      logger.error('Failed to serve public file', { 
+        ...routeParams,
         error: error.message 
       });
       
@@ -454,7 +511,7 @@ class FileController {
 
       throw error;
     }
-  });
+  };
 
   /**
    * Serve public file by context and filename (LEGACY - backward compatibility)
