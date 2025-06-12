@@ -1,7 +1,7 @@
 {
   "name": "otto",
   "version": "1.0.0",
-  "description": "Private user content server for VI Software Platform",
+  "description": "The simple and efficient CDN server",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
