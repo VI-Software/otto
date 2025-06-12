@@ -39,19 +39,25 @@ app.set('trust proxy', true);
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "blob:"],
+      defaultSrc: ["'self'", "*"],
+      styleSrc: ["'self'", "'unsafe-inline'", "*"],
+      scriptSrc: ["'self'", "*"],
+      imgSrc: ["'self'", "data:", "blob:", "*"],
+      mediaSrc: ["'self'", "*"],
+      connectSrc: ["'self'", "*"],
     },
   },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
 }));
 
-// CORS configuration - Allow all origins for CDN compatibility
+// CORS configuration - More permissive for CDN compatibility
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Range'],
+  exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
+  maxAge: 86400, // 24 hours
   credentials: false
 }));
 
