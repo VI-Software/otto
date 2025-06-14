@@ -177,7 +177,7 @@ class OttoUploader {
       metadata = null,
       useUploadToken = false,
       forceChunked = false,
-      chunkThreshold = 40 * 1024 * 1024
+      chunkThreshold = 25 * 1024 * 1024
     } = options;
 
     // Determine if we should use chunked upload
