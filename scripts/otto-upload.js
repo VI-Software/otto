@@ -876,8 +876,10 @@ program.action(async (files, options) => {
         console.log(chalk.white(`Total Size: ${stats.formattedTotalSize}`));
         console.log(chalk.white(`Unique Contexts: ${stats.uniqueContexts}`));
         console.log(chalk.white(`Unique Uploaders: ${stats.uniqueUploaders}`));
-      }
-    }
+      }    }
+
+    // Exit successfully
+    process.exit(0);
 
   } catch (error) {
     console.error(chalk.red(`\nError: ${error.message}`));

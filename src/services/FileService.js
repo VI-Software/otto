@@ -28,47 +28,58 @@ class FileService {
         
         // Check if file already exists with same hash
         const existingFile = await FileModel.findByHash(fileHash);
-        
-        if (existingFile) {
-          logger.info('File already exists, reusing', { 
-            hash: fileHash,
-            existingId: existingFile.id,
-            originalName: file.originalname 
-          });
-          
-          // Create new record pointing to same file but with current context
-          const fileId = uuidv4();
-          const shouldBePublic = forcePublic !== null ? forcePublic : isPublicContext(context);
-          
-          const fileData = {
-            id: fileId,
-            filename: existingFile.filename, // Reuse existing filename
-            originalName: file.originalname,
-            filePath: existingFile.file_path, // Point to existing file
-            mimeType: file.mimetype,
-            fileSize: file.size,
-            uploadContext: context,
-            uploadedBy,
-            uploadSource,
-            isPublic: shouldBePublic,
-            fileHash,
-            metadata: {
-              ...metadata,
-              encoding: file.encoding,
-              fieldName: file.fieldname,
-              deduplicated: true,
-              originalFileId: existingFile.id
-            }
-          };
+          if (existingFile) {
+          // Check if the existing file actually exists on disk
+          if (fs.existsSync(existingFile.file_path)) {
+            logger.info('File already exists, reusing', { 
+              hash: fileHash,
+              existingId: existingFile.id,
+              originalName: file.originalname,
+              existingPath: existingFile.file_path
+            });
+            
+            // Create new record pointing to same file but with current context
+            const fileId = uuidv4();
+            const shouldBePublic = forcePublic !== null ? forcePublic : isPublicContext(context);
+            
+            const fileData = {
+              id: fileId,
+              filename: existingFile.filename, // Reuse existing filename
+              originalName: file.originalname,
+              filePath: existingFile.file_path, // Point to existing file
+              mimeType: file.mimetype,
+              fileSize: file.size,
+              uploadContext: context,
+              uploadedBy,
+              uploadSource,
+              isPublic: shouldBePublic,
+              fileHash,
+              metadata: {
+                ...metadata,
+                encoding: file.encoding,
+                fieldName: file.fieldname,
+                deduplicated: true,
+                originalFileId: existingFile.id
+              }
+            };
 
-          const savedFile = await FileModel.create(fileData);
-          processedFiles.push(savedFile);
-          
-          // Remove uploaded duplicate
-          fs.unlinkSync(file.path);
-          
-          continue;
-        }        const fileId = uuidv4();
+            const savedFile = await FileModel.create(fileData);
+            processedFiles.push(savedFile);
+            
+            // Remove uploaded duplicate
+            fs.unlinkSync(file.path);
+            
+            continue;
+          } else {
+            logger.warn('Existing file not found on disk, proceeding with new file', {
+              hash: fileHash,
+              existingId: existingFile.id,
+              missingPath: existingFile.file_path,
+              originalName: file.originalname
+            });
+            // Don't reuse - let it process as a new file
+          }
+        }const fileId = uuidv4();
         const shouldBePublic = forcePublic !== null ? forcePublic : isPublicContext(context);
         
         // Optimize images if enabled
