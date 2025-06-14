@@ -63,6 +63,22 @@ class OttoUploader {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
+
+  formatDuration(ms) {
+    if (ms < 0 || !isFinite(ms)) return 'calculating...';
+    
+    const seconds = Math.floor((ms / 1000) % 60);
+    const minutes = Math.floor((ms / (1000 * 60)) % 60);
+    const hours = Math.floor((ms / (1000 * 60 * 60)) % 24);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${seconds}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  }
   async validateFiles(filePaths) {
     const validFiles = [];
     
@@ -390,14 +406,16 @@ class OttoUploader {
     for (const file of files) {
       this.log(`Starting chunked upload for: ${file.name} (${this.formatBytes(file.size)})`, 'info');
       
-      try {
-        const result = await this.uploadSingleFileChunked(file, {
+      try {        const result = await this.uploadSingleFileChunked(file, {
           context,
           uploadedBy,
           generateThumbnails,
           metadata,
           authToken,
-          useUploadToken
+          useUploadToken,
+          maxRetries: options.maxRetries,
+          chunkTimeout: options.chunkTimeout,
+          maxConcurrent: options.maxConcurrent
         });
         
         results.push(result);
@@ -415,12 +433,21 @@ class OttoUploader {
       totalSize: results.reduce((sum, file) => sum + file.fileSize, 0)
     };
   }
-
   /**
    * Upload a single file using chunked upload
    */
   async uploadSingleFileChunked(file, options) {
-    const { context, uploadedBy, generateThumbnails, metadata, authToken, useUploadToken } = options;
+    const { 
+      context, 
+      uploadedBy, 
+      generateThumbnails, 
+      metadata, 
+      authToken, 
+      useUploadToken,
+      maxRetries = 3,
+      chunkTimeout = 120,
+      maxConcurrent = 2
+    } = options;
 
     // Step 1: Initialize upload session
     const sessionData = await this.initializeChunkedUpload(file, {
@@ -436,19 +463,24 @@ class OttoUploader {
     this.log(`Initialized session ${sessionId} with ${totalChunks} chunks of ${this.formatBytes(chunkSize)}`, 'debug');
 
     // Step 2: Upload chunks
-    await this.uploadChunks(file, sessionId, chunkSize, totalChunks, authToken);
+    await this.uploadChunks(file, sessionId, chunkSize, totalChunks, authToken, {
+      maxRetries,
+      chunkTimeout,
+      maxConcurrent
+    });
 
     // Step 3: Complete upload
     const result = await this.completeChunkedUpload(sessionId, authToken);
 
     return result.file;
   }
-
   /**
    * Initialize chunked upload session
    */
   async initializeChunkedUpload(file, options) {
     const { context, uploadedBy, metadata, authToken, useUploadToken } = options;
+
+    this.log(`Initializing chunked upload for: ${file.name} (${this.formatBytes(file.size)})`, 'debug');
 
     const payload = {
       originalFilename: file.name,
@@ -465,6 +497,8 @@ class OttoUploader {
       payload.metadata = metadata;
     }
 
+    this.log(`Sending init request to: ${this.baseUrl}/upload/chunk/init`, 'debug');
+
     const response = await fetch(`${this.baseUrl}/upload/chunk/init`, {
       method: 'POST',
       headers: {
@@ -476,25 +510,30 @@ class OttoUploader {
 
     if (!response.ok) {
       const error = await response.text();
+      this.log(`Init failed with status ${response.status}: ${error}`, 'error');
       throw new Error(`Failed to initialize chunked upload: ${response.status} ${error}`);
     }
 
     const result = await response.json();
+    this.log(`Session initialized successfully: ${result.data.sessionId}`, 'debug');
     return result.data;
-  }
-
-  /**
+  }/**
    * Upload all chunks for a file
    */
-  async uploadChunks(file, sessionId, chunkSize, totalChunks, authToken) {
+  async uploadChunks(file, sessionId, chunkSize, totalChunks, authToken, options = {}) {
+    const { maxRetries = 3, chunkTimeout = 120, maxConcurrent = 2 } = options;
     const filePath = file.path;
     const fileHandle = fs.openSync(filePath, 'r');
 
     try {
-      // Upload chunks with some concurrency but not too much to avoid overwhelming the server
-      const maxConcurrent = 3;
+      // Upload chunks with controlled concurrency for better Cloudflare compatibility
       let currentChunk = 0;
       const activeUploads = new Set();
+      
+      // ETA tracking
+      const startTime = Date.now();
+      let completedChunks = 0;
+      let totalBytesUploaded = 0;
 
       while (currentChunk < totalChunks) {
         // Start uploads up to maxConcurrent
@@ -505,16 +544,28 @@ class OttoUploader {
             sessionId, 
             chunkIndex, 
             chunkSize, 
-            authToken
+            authToken,
+            maxRetries,
+            chunkTimeout * 1000 // Convert to milliseconds
           );
           
           activeUploads.add(uploadPromise);
           
           uploadPromise
-            .then(() => {
+            .then((result) => {
               activeUploads.delete(uploadPromise);
-              const progress = Math.round((chunkIndex + 1) / totalChunks * 100);
-              this.log(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded (${progress}%)`, 'debug');
+              completedChunks++;
+              totalBytesUploaded += result.chunkSize || chunkSize;
+              
+              // Calculate ETA
+              const elapsed = Date.now() - startTime;
+              const progress = completedChunks / totalChunks;
+              const eta = progress > 0 ? (elapsed / progress) - elapsed : 0;
+              const etaFormatted = this.formatDuration(eta);
+              const speed = this.formatBytes(totalBytesUploaded / (elapsed / 1000)) + '/s';
+              
+              const progressPercent = Math.round(progress * 100);
+              this.log(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded (${progressPercent}%) - Speed: ${speed} - ETA: ${etaFormatted}`, 'debug');
             })
             .catch(error => {
               activeUploads.delete(uploadPromise);
@@ -534,12 +585,10 @@ class OttoUploader {
     } finally {
       fs.closeSync(fileHandle);
     }
-  }
-
-  /**
-   * Upload a single chunk
+  }  /**
+   * Upload a single chunk with retry logic
    */
-  async uploadSingleChunk(fileHandle, sessionId, chunkIndex, chunkSize, authToken) {
+  async uploadSingleChunk(fileHandle, sessionId, chunkIndex, chunkSize, authToken, maxRetries = 3, timeoutMs = 120000) {
     const buffer = Buffer.alloc(chunkSize);
     const position = chunkIndex * chunkSize;
     const bytesRead = fs.readSync(fileHandle, buffer, 0, chunkSize, position);
@@ -547,34 +596,78 @@ class OttoUploader {
     // Trim buffer to actual bytes read for last chunk
     const chunkData = bytesRead < chunkSize ? buffer.slice(0, bytesRead) : buffer;
 
-    const form = new FormData();
-    form.append('chunk', chunkData, {
-      filename: `chunk-${chunkIndex}`,
-      contentType: 'application/octet-stream'
-    });
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const form = new FormData();
+        form.append('chunk', chunkData, {
+          filename: `chunk-${chunkIndex}`,
+          contentType: 'application/octet-stream'
+        });        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    const response = await fetch(`${this.baseUrl}/upload/chunk/${sessionId}/${chunkIndex}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        ...form.getHeaders()
-      },
-      body: form
-    });
+        this.log(`Uploading chunk ${chunkIndex} to: ${this.baseUrl}/upload/chunk/${sessionId}/${chunkIndex}`, 'debug');
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to upload chunk ${chunkIndex}: ${response.status} ${error}`);
+        const response = await fetch(`${this.baseUrl}/upload/chunk/${sessionId}/${chunkIndex}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            ...form.getHeaders()
+          },
+          body: form,
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const error = await response.text().catch(() => 'Unknown error');
+          
+          // Log the specific error
+          if (response.status === 524) {
+            this.log(`Chunk ${chunkIndex} timeout (524) - attempt ${attempt}/${maxRetries}`, 'error');
+          } else {
+            this.log(`Chunk ${chunkIndex} failed with ${response.status} - attempt ${attempt}/${maxRetries}`, 'error');
+          }
+          
+          if (attempt === maxRetries) {
+            throw new Error(`Failed to upload chunk ${chunkIndex}: ${response.status} ${error}`);
+          }
+          
+          // Exponential backoff
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+          this.log(`Retrying chunk ${chunkIndex} in ${delay}ms...`, 'debug');
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        const result = await response.json();
+        return { ...result.data, chunkSize: bytesRead };
+
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          this.log(`Chunk ${chunkIndex} upload timed out - attempt ${attempt}/${maxRetries}`, 'error');
+        } else {
+          this.log(`Chunk ${chunkIndex} upload error: ${error.message} - attempt ${attempt}/${maxRetries}`, 'error');
+        }
+        
+        if (attempt === maxRetries) {
+          throw new Error(`Failed to upload chunk ${chunkIndex} after ${maxRetries} attempts: ${error.message}`);
+        }
+        
+        // Exponential backoff
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        this.log(`Retrying chunk ${chunkIndex} in ${delay}ms...`, 'debug');
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
-
-    const result = await response.json();
-    return result.data;
   }
-
   /**
    * Complete chunked upload
    */
   async completeChunkedUpload(sessionId, authToken) {
+    this.log(`Completing chunked upload for session: ${sessionId}`, 'debug');
+    
     const response = await fetch(`${this.baseUrl}/upload/chunk/${sessionId}/complete`, {
       method: 'POST',
       headers: {
@@ -584,10 +677,12 @@ class OttoUploader {
 
     if (!response.ok) {
       const error = await response.text();
+      this.log(`Complete upload failed with status ${response.status}: ${error}`, 'error');
       throw new Error(`Failed to complete chunked upload: ${response.status} ${error}`);
     }
 
     const result = await response.json();
+    this.log(`Chunked upload completed successfully for session: ${sessionId}`, 'debug');
     return result.data;
   }
 
@@ -646,6 +741,9 @@ program
   .option('--upload-token', 'Use upload token flow (requires service token)', false)
   .option('--chunked', 'Force chunked upload for all files', false)
   .option('--chunk-threshold <size>', 'File size threshold for auto chunked upload (MB)', '100')
+  .option('--max-retries <count>', 'Maximum retry attempts for failed chunks', '3')
+  .option('--chunk-timeout <seconds>', 'Timeout for individual chunk uploads (seconds)', '120')
+  .option('--max-concurrent <count>', 'Maximum concurrent chunk uploads', '2')
   .option('-v, --verbose', 'Verbose logging', false)
   .option('--stats', 'Show upload statistics after upload', false)
   .option('--test-only', 'Only test connection without uploading', false);
@@ -692,9 +790,7 @@ program.action(async (files, options) => {
     const validFiles = await uploader.validateFiles(files);
     const totalSize = validFiles.reduce((sum, file) => sum + file.size, 0);
     
-    uploader.log(`Preparing to upload ${validFiles.length} files (total: ${uploader.formatBytes(totalSize)})`, 'info');
-
-    // Upload files
+    uploader.log(`Preparing to upload ${validFiles.length} files (total: ${uploader.formatBytes(totalSize)})`, 'info');    // Upload files
     const uploadResult = await uploader.uploadFiles(validFiles, {
       context: options.context,
       uploadedBy: options.uploadedBy,
@@ -702,7 +798,10 @@ program.action(async (files, options) => {
       metadata,
       useUploadToken: options.uploadToken,
       forceChunked: options.chunked,
-      chunkThreshold: parseInt(options.chunkThreshold) * 1024 * 1024 // Convert MB to bytes
+      chunkThreshold: parseInt(options.chunkThreshold) * 1024 * 1024, // Convert MB to bytes
+      maxRetries: parseInt(options.maxRetries),
+      chunkTimeout: parseInt(options.chunkTimeout),
+      maxConcurrent: parseInt(options.maxConcurrent)
     });
 
     // Display results
