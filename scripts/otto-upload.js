@@ -63,7 +63,6 @@ class OttoUploader {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
-
   formatDuration(ms) {
     if (ms < 0 || !isFinite(ms)) return 'calculating...';
     
@@ -79,7 +78,29 @@ class OttoUploader {
       return `${seconds}s`;
     }
   }
-  async validateFiles(filePaths) {
+
+  /**
+   * Check if a file is a video format
+   */
+  isVideoFile(file) {
+    // Check MIME type first
+    if (file.mimeType && file.mimeType.startsWith('video/')) {
+      return true;
+    }
+    
+    // Check file extension as fallback
+    const extension = path.extname(file.name).toLowerCase();
+    const videoExtensions = [
+      '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v',
+      '.3gp', '.ogv', '.f4v', '.asf', '.rm', '.rmvb', '.vob', '.ts',
+      '.mts', '.m2ts', '.divx', '.xvid', '.mpg', '.mpeg', '.m1v', '.m2v',
+      '.qt', '.amv', '.drc', '.gif', '.gifv', '.mng', '.qt', '.yuv',
+      '.roq', '.svi', '.viv', '.vp6', '.vp8', '.vp9', '.h264', '.h265',
+      '.hevc', '.prores', '.dnxhd', '.cineform'
+    ];
+    
+    return videoExtensions.includes(extension);
+  }async validateFiles(filePaths) {
     const validFiles = [];
     
     for (const filePath of filePaths) {
@@ -104,7 +125,18 @@ class OttoUploader {
                 '.pdf': 'application/pdf',
                 '.txt': 'text/plain',
                 '.doc': 'application/msword',
-                '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                // Video formats
+                '.mp4': 'video/mp4',
+                '.avi': 'video/x-msvideo',
+                '.mov': 'video/quicktime',
+                '.wmv': 'video/x-ms-wmv',
+                '.flv': 'video/x-flv',
+                '.webm': 'video/webm',
+                '.mkv': 'video/x-matroska',
+                '.m4v': 'video/x-m4v',
+                '.3gp': 'video/3gpp',
+                '.ogv': 'video/ogg'
               };
               mimeType = mimeMap[ext] || 'application/octet-stream';
             }
@@ -168,8 +200,7 @@ class OttoUploader {
     const result = await response.json();
     this.log('Upload token generated successfully', 'debug');
     return result.data;
-  }
-  async uploadFiles(files, options = {}) {
+  }  async uploadFiles(files, options = {}) {
     const {
       context = 'general',
       uploadedBy = 'script-user',
@@ -177,16 +208,21 @@ class OttoUploader {
       metadata = null,
       useUploadToken = false,
       forceChunked = false,
-      chunkThreshold = 25 * 1024 * 1024
-    } = options;
-
+      chunkThreshold = 25 * 1024 * 1024 // Changed from 100MB to 25MB
+    } = options;    // Check if any files are videos - force chunked upload for all video files
+    const hasVideoFiles = files.some(file => this.isVideoFile(file));
+    
     // Determine if we should use chunked upload
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);
     const hasLargeFiles = files.some(file => file.size > chunkThreshold);
-    const shouldUseChunked = forceChunked || hasLargeFiles;
+    const shouldUseChunked = forceChunked || hasLargeFiles || hasVideoFiles;
 
     if (shouldUseChunked) {
-      this.log('Using chunked upload for large files', 'info');
+      if (hasVideoFiles) {
+        this.log('Using chunked upload for video files', 'info');
+      } else {
+        this.log('Using chunked upload for large files', 'info');
+      }
       return await this.uploadFilesChunked(files, options);
     }
 
@@ -783,9 +819,8 @@ program
   .option('-b, --uploaded-by <user>', 'User ID for upload attribution', 'script-user')
   .option('-m, --metadata <json>', 'Additional metadata as JSON string')
   .option('--thumbnails', 'Generate thumbnails for images', false)
-  .option('--upload-token', 'Use upload token flow (requires service token)', false)
-  .option('--chunked', 'Force chunked upload for all files', false)
-  .option('--chunk-threshold <size>', 'File size threshold for auto chunked upload (MB)', '100')
+  .option('--upload-token', 'Use upload token flow (requires service token)', false)  .option('--chunked', 'Force chunked upload for all files', false)
+  .option('--chunk-threshold <size>', 'File size threshold for auto chunked upload (MB) - videos always use chunked', '25')
   .option('--max-retries <count>', 'Maximum retry attempts for failed chunks', '3')
   .option('--chunk-timeout <seconds>', 'Timeout for individual chunk uploads (seconds)', '120')
   .option('--max-concurrent <count>', 'Maximum concurrent chunk uploads', '2')
