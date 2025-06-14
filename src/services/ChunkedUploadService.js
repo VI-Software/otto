@@ -186,7 +186,6 @@ class ChunkedUploadService {
       expiresAt: session.expiresAt
     };
   }
-
   /**
    * Assemble all chunks into final file
    */
@@ -197,7 +196,12 @@ class ChunkedUploadService {
     }
 
     if (session.completed) {
-      return session.finalFilePath;
+      // Return the processed file object, not just the path
+      if (session.processedFile) {
+        return session.processedFile;
+      } else {
+        throw new Error('Session completed but no processed file found');
+      }
     }
 
     // Verify all chunks are present
@@ -237,8 +241,12 @@ class ChunkedUploadService {
       // Process the assembled file through the regular upload pipeline
       const processedFile = await this.processAssembledFile(session, tempFilePath);
 
+      if (!processedFile) {
+        throw new Error('No file was returned from processAssembledFile');
+      }
+
       session.completed = true;
-      session.finalFilePath = processedFile.filePath;
+      session.finalFilePath = processedFile.file_path;
       session.processedFile = processedFile;
 
       logger.info('Chunked upload completed and assembled', {
@@ -261,38 +269,55 @@ class ChunkedUploadService {
       throw error;
     }
   }
-
   /**
    * Process assembled file through regular FileService
    */
   async processAssembledFile(session, tempFilePath) {
-    // Create a file object similar to multer format
-    const fileObj = {
-      path: tempFilePath,
-      originalname: session.originalFilename,
-      filename: path.basename(tempFilePath),
-      mimetype: session.mimeType,
-      size: session.totalSize,
-      encoding: '7bit',
-      fieldname: 'file'
-    };
+    try {
+      // Create a file object similar to multer format
+      const fileObj = {
+        path: tempFilePath,
+        originalname: session.originalFilename,
+        filename: path.basename(tempFilePath),
+        mimetype: session.mimeType,
+        size: session.totalSize,
+        encoding: '7bit',
+        fieldname: 'file'
+      };
 
-    // Process through FileService
-    const processedFiles = await FileService.processUploadedFiles([fileObj], {
-      context: session.context,
-      uploadedBy: session.uploadedBy,
-      uploadSource: session.uploadSource,
-      generateThumbnails: false, // Can be added as option later
-      metadata: {
-        ...session.metadata,
-        chunkedUpload: true,
-        sessionId: session.id,
-        originalTotalSize: session.totalSize,
-        totalChunks: session.totalChunks
+      // Process through FileService
+      const processedFiles = await FileService.processUploadedFiles([fileObj], {
+        context: session.context,
+        uploadedBy: session.uploadedBy,
+        uploadSource: session.uploadSource,
+        generateThumbnails: false, // Can be added as option later
+        metadata: {
+          ...session.metadata,
+          chunkedUpload: true,
+          sessionId: session.id,
+          originalTotalSize: session.totalSize,
+          totalChunks: session.totalChunks
+        }
+      });
+
+      if (!processedFiles || processedFiles.length === 0) {
+        throw new Error('FileService did not return any processed files');
       }
-    });
 
-    return processedFiles[0];
+      const processedFile = processedFiles[0];
+      if (!processedFile || !processedFile.id) {
+        throw new Error('FileService returned invalid file object');
+      }
+
+      return processedFile;
+    } catch (error) {
+      logger.error('Failed to process assembled file', {
+        sessionId: session.id,
+        error: error.message,
+        tempFilePath
+      });
+      throw error;
+    }
   }
 
   /**

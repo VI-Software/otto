@@ -460,14 +460,16 @@ class OttoUploader {
 
     const { sessionId, chunkSize, totalChunks } = sessionData;
 
-    this.log(`Initialized session ${sessionId} with ${totalChunks} chunks of ${this.formatBytes(chunkSize)}`, 'debug');
-
-    // Step 2: Upload chunks
+    this.log(`Initialized session ${sessionId} with ${totalChunks} chunks of ${this.formatBytes(chunkSize)}`, 'debug');    // Step 2: Upload chunks
     await this.uploadChunks(file, sessionId, chunkSize, totalChunks, authToken, {
       maxRetries,
       chunkTimeout,
       maxConcurrent
     });
+
+    // Small delay to ensure all chunks are fully processed
+    this.log('All chunks uploaded, waiting for server processing...', 'debug');
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Step 3: Complete upload
     const result = await this.completeChunkedUpload(sessionId, authToken);
@@ -661,29 +663,72 @@ class OttoUploader {
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-  }
-  /**
-   * Complete chunked upload
+  }  /**
+   * Complete chunked upload with retry logic
    */
-  async completeChunkedUpload(sessionId, authToken) {
+  async completeChunkedUpload(sessionId, authToken, maxRetries = 3) {
     this.log(`Completing chunked upload for session: ${sessionId}`, 'debug');
     
-    const response = await fetch(`${this.baseUrl}/upload/chunk/${sessionId}/complete`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken}`
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetch(`${this.baseUrl}/upload/chunk/${sessionId}/complete`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
+        });
+
+        if (!response.ok) {
+          const error = await response.text();
+          
+          // If it's a missing chunks error, check status and retry
+          if (response.status === 400 && error.includes('Missing chunk')) {
+            this.log(`Missing chunks detected, checking status...`, 'debug');
+            
+            // Check session status
+            const statusResponse = await fetch(`${this.baseUrl}/upload/chunk/${sessionId}/status`, {
+              headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            
+            if (statusResponse.ok) {
+              const status = await statusResponse.json();
+              this.log(`Session status: ${status.data.uploadedChunks}/${status.data.totalChunks} chunks uploaded`, 'debug');
+              
+              if (status.data.missingChunks.length > 0) {
+                this.log(`Missing chunks: ${status.data.missingChunks.join(', ')}`, 'error');
+                throw new Error(`Missing chunks: ${status.data.missingChunks.join(', ')}`);
+              }
+            }
+          }
+          
+          this.log(`Complete upload failed with status ${response.status}: ${error} - attempt ${attempt}/${maxRetries}`, 'error');
+          
+          if (attempt === maxRetries) {
+            throw new Error(`Failed to complete chunked upload: ${response.status} ${error}`);
+          }
+          
+          // Wait before retry
+          const delay = 2000 * attempt; // 2s, 4s, 6s
+          this.log(`Retrying completion in ${delay}ms...`, 'debug');
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        const result = await response.json();
+        this.log(`Chunked upload completed successfully for session: ${sessionId}`, 'debug');
+        return result.data;
+        
+      } catch (error) {
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        
+        this.log(`Completion attempt ${attempt} failed: ${error.message}`, 'error');
+        const delay = 2000 * attempt;
+        this.log(`Retrying completion in ${delay}ms...`, 'debug');
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      this.log(`Complete upload failed with status ${response.status}: ${error}`, 'error');
-      throw new Error(`Failed to complete chunked upload: ${response.status} ${error}`);
     }
-
-    const result = await response.json();
-    this.log(`Chunked upload completed successfully for session: ${sessionId}`, 'debug');
-    return result.data;
   }
 
   async testConnection() {

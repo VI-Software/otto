@@ -231,6 +231,32 @@ class ChunkedUploadController {
     const { sessionId } = req.params;
 
     try {
+      // First check session status to see if all chunks are uploaded
+      const status = ChunkedUploadService.getSessionStatus(sessionId);
+      if (!status) {
+        return res.status(404).json({
+          error: 'Upload session not found',
+          code: 'SESSION_NOT_FOUND'
+        });
+      }
+
+      logger.debug('Completion request received', {
+        sessionId,
+        uploadedChunks: status.uploadedChunks,
+        totalChunks: status.totalChunks,
+        missingChunks: status.missingChunks,
+        completed: status.completed
+      });
+
+      // If there are missing chunks, return error with details
+      if (status.missingChunks.length > 0) {
+        return res.status(400).json({
+          error: `Missing chunks: ${status.missingChunks.join(', ')}`,
+          code: 'MISSING_CHUNKS',
+          missingChunks: status.missingChunks
+        });
+      }
+
       const processedFile = await ChunkedUploadService.assembleFile(sessionId);
 
       // Debug logging to see what we got back
@@ -293,7 +319,8 @@ class ChunkedUploadController {
     } catch (error) {
       logger.error('Failed to complete chunked upload', {
         sessionId,
-        error: error.message
+        error: error.message,
+        stack: error.stack
       });
 
       if (error.message.includes('not found')) {
