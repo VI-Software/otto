@@ -268,17 +268,40 @@ class ChunkedUploadService {
       }
       throw error;
     }
-  }
-  /**
+  }  /**
    * Process assembled file through regular FileService
    */
   async processAssembledFile(session, tempFilePath) {
     try {
+      // Get proper upload directory (same as regular upload middleware)
+      const uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
+      const contextDir = path.join(uploadDir, session.context);
+      
+      // Ensure context directory exists
+      if (!fs.existsSync(contextDir)) {
+        fs.mkdirSync(contextDir, { recursive: true });
+      }
+
+      // Generate proper filename (similar to regular upload middleware)
+      const fileId = crypto.randomUUID();
+      const extension = path.extname(session.originalFilename).toLowerCase();
+      const finalFilename = `${fileId}${extension}`;
+      const finalFilePath = path.join(contextDir, finalFilename);
+
+      // Move assembled file to proper location
+      fs.renameSync(tempFilePath, finalFilePath);
+
+      logger.info('Moved assembled file to final location', {
+        sessionId: session.id,
+        from: tempFilePath,
+        to: finalFilePath
+      });
+
       // Create a file object similar to multer format
       const fileObj = {
-        path: tempFilePath,
+        path: finalFilePath,
         originalname: session.originalFilename,
-        filename: path.basename(tempFilePath),
+        filename: finalFilename,
         mimetype: session.mimeType,
         size: session.totalSize,
         encoding: '7bit',
