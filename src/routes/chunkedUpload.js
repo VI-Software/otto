@@ -31,20 +31,6 @@ router.post('/init',
 );
 
 /**
- * POST /api/upload/chunk/:sessionId/:chunkIndex
- * Upload a single chunk
- * Uses stricter rate limiting since chunks are uploaded frequently
- */
-router.post('/:sessionId/:chunkIndex',
-  strictUploadLimiter,
-  authenticate,
-  validateChunkParams,
-  uploadSingleChunk,
-  handleChunkUploadError,
-  ChunkedUploadController.uploadChunk
-);
-
-/**
  * GET /api/upload/chunk/:sessionId/status
  * Get upload session status and missing chunks
  */
@@ -72,6 +58,21 @@ router.delete('/:sessionId',
   uploadLimiter,
   authenticate,
   ChunkedUploadController.cancelUpload
+);
+
+/**
+ * POST /api/upload/chunk/:sessionId/:chunkIndex
+ * Upload a single chunk
+ * Uses stricter rate limiting since chunks are uploaded frequently
+ * Note: This route must come AFTER the specific routes above
+ */
+router.post('/:sessionId/:chunkIndex',
+  strictUploadLimiter,
+  authenticate,
+  validateChunkParams,
+  uploadSingleChunk,
+  handleChunkUploadError,
+  ChunkedUploadController.uploadChunk
 );
 
 export default router;

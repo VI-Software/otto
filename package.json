@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "description": "The simple and efficient file server",
   "main": "src/server.js",
-  "type": "module",
-  "scripts": {
+  "type": "module",  "scripts": {
     "start": "node start.js",
     "dev": "nodemon start.js",
     "test": "jest",
     "test:otto": "node test-otto.js",
     "test:quick": "node test-otto.js quick",
     "test:chunked": "node test-chunked-upload.js",
+    "test:routes": "node test-routes.js",
     "seed": "node src/scripts/seed.js"
   },
   "keywords": [
