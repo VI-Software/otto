@@ -1,5 +1,6 @@
 import FileService from '../services/FileService.js';
 import TokenService from '../services/TokenService.js';
+import ChunkedUploadService from '../services/ChunkedUploadService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import logger from '../config/logger.js';
 
@@ -46,6 +47,30 @@ class UploadController {  generateUploadToken = asyncHandler(async (req, res) =>
       return res.status(400).json({
         error: 'No files provided',
         code: 'NO_FILES'
+      });
+    }
+
+    // Check if any files are too large for regular upload and suggest chunked upload
+    const chunkSize = ChunkedUploadService.chunkSize;
+    const largeFiles = req.files.filter(file => file.size > chunkSize);
+    
+    if (largeFiles.length > 0) {
+      logger.info('Large files detected, suggesting chunked upload', {
+        fileCount: largeFiles.length,
+        fileSizes: largeFiles.map(f => f.size),
+        chunkSize
+      });
+      
+      return res.status(413).json({
+        error: 'Files too large for regular upload',
+        code: 'FILES_TOO_LARGE_FOR_REGULAR_UPLOAD',
+        suggestion: 'Use chunked upload API for files larger than ' + Math.round(chunkSize / 1024 / 1024) + 'MB',
+        chunkUploadEndpoint: '/upload/chunk',
+        chunkSize,
+        largeFiles: largeFiles.map(f => ({
+          name: f.originalname,
+          size: f.size
+        }))
       });
     }
 

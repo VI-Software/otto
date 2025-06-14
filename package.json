@@ -10,6 +10,7 @@
     "test": "jest",
     "test:otto": "node test-otto.js",
     "test:quick": "node test-otto.js quick",
+    "test:chunked": "node test-chunked-upload.js",
     "seed": "node src/scripts/seed.js"
   },
   "keywords": [

@@ -5,6 +5,7 @@ Otto is a secure, efficient file server designed for the VI Software Platform. I
 ## 🚀 Features
 
 - **Multiple Authentication Methods**: Service tokens, JWT tokens, and temporary upload tokens
+- **Chunked Upload Support**: Handle large files (>100MB) with automatic chunking for Cloudflare compatibility
 - **Public/Private File Access**: Context-based access control with public file serving
 - **File Deduplication**: Automatic detection and handling of duplicate files
 - **Thumbnail Generation**: Automatic thumbnail creation for images
@@ -24,6 +25,7 @@ Otto is a secure, efficient file server designed for the VI Software Platform. I
 - [API Documentation](#-api-documentation)
 - [Authentication](#-authentication)
 - [File Upload](#-file-upload)
+- [Chunked Upload](#-chunked-upload)
 - [File Access](#-file-access)
 - [Upload Script](#-upload-script)
 - [Public Contexts](#-public-contexts)
@@ -110,12 +112,31 @@ SERVICE_TOKEN=your-service-token-here
 UPLOAD_DIR=./uploads
 MAX_FILE_SIZE=10485760  # 10MB in bytes
 ALLOWED_MIME_TYPES=image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain
+
+# Chunked Upload Configuration
+CHUNK_SIZE=26214400  # 25MB in bytes
+CHUNK_SESSION_TIMEOUT=86400000  # 24 hours in milliseconds
+MAX_CONCURRENT_CHUNKS=10
+CHUNK_TEMP_DIR=./temp-chunks
+MAX_TOTAL_FILE_SIZE=1073741824  # 1GB in bytes
 ```
 
 ### Security
 ```env
 RATE_LIMIT_WINDOW_MS=900000  # 15 minutes
 RATE_LIMIT_MAX_REQUESTS=100
+```
+
+### Chunked Upload
+```env
+# Chunk size in bytes (default: 25MB)
+CHUNK_SIZE=26214400
+
+# Session timeout in milliseconds (default: 24 hours)
+CHUNK_SESSION_TIMEOUT=86400000
+
+# Maximum total file size for chunked uploads (default: 1GB)
+MAX_TOTAL_FILE_SIZE=1073741824
 ```
 
 ## 🗄 Database Setup
@@ -289,6 +310,49 @@ curl -X POST \
     "totalSize": 245760
   }
 }
+```
+
+## 📦 Chunked Upload
+
+Otto supports chunked file uploads for handling large files efficiently. Files larger than 25MB are automatically processed using chunked upload to work within Cloudflare's 100MB request limit.
+
+### Automatic Chunked Upload
+
+The CLI tool automatically detects large files and uses chunked upload:
+
+```bash
+# Upload large files (>100MB) - automatically uses chunked upload
+node scripts/otto-upload.js --token YOUR_TOKEN --context videos large-video.mp4
+
+# Force chunked upload for all files
+node scripts/otto-upload.js --token YOUR_TOKEN --context videos --chunked small-file.jpg
+
+# Set custom chunk threshold (50MB)
+node scripts/otto-upload.js --token YOUR_TOKEN --chunk-threshold 50 files/*.mp4
+```
+
+### Chunked Upload API
+
+For manual implementation, see the [Chunked Upload Documentation](./docs/CHUNKED_UPLOAD.md) for detailed API specifications.
+
+### Key Benefits
+
+- **Cloudflare Compatible**: Works within 100MB request limits
+- **Resume Support**: Failed uploads can be resumed from the last successful chunk
+- **Progress Tracking**: Granular progress information for better UX
+- **Bandwidth Efficient**: Only failed chunks need to be retried
+
+### Configuration
+
+```env
+# Chunk size in bytes (default: 25MB)
+CHUNK_SIZE=26214400
+
+# Session timeout in milliseconds (default: 24 hours)
+CHUNK_SESSION_TIMEOUT=86400000
+
+# Maximum total file size for chunked uploads (default: 1GB)
+MAX_TOTAL_FILE_SIZE=1073741824
 ```
 
 ## 📥 File Access

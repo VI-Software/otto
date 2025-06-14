@@ -160,3 +160,34 @@ export const fileLimiter = rateLimit({
         });
     }
 });
+
+// Strict upload rate limiter for chunked uploads (more frequent requests expected)
+export const strictUploadLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 100, // Allow many chunk uploads per minute
+    message: 'Too many chunk upload requests, please slow down',
+    keyGenerator: generateKey,
+    trustProxy: true,
+    validate: {
+        xForwardedForHeader: false
+    },
+    standardHeaders: true,
+    legacyHeaders: false,    handler: (req, res) => {
+        const retryAfter = Math.ceil(req.rateLimit.resetTime / 1000 - Date.now() / 1000);
+        logger.warn('Strict upload rate limit exceeded', {
+            ip: getClientIp(req),
+            userAgent: req.headers['user-agent'],
+            path: req.path,
+            sessionId: req.params.sessionId,
+            chunkIndex: req.params.chunkIndex,
+            retryAfter
+        });
+        
+        res.status(429).json({
+            error: 'Too many chunk upload requests',
+            message: 'Too many chunk upload requests, please slow down',
+            retryAfter: retryAfter,
+            limitType: 'strictUpload'
+        });
+    }
+});

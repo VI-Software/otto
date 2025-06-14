@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import logger from './config/logger.js';
 import database from './config/database.js';
 import uploadRoutes from './routes/upload.js';
+import chunkedUploadRoutes from './routes/chunkedUpload.js';
 import fileRoutes from './routes/files.js';
 import publicRoutes from './routes/public.js';
 import healthRoutes from './routes/health.js';
@@ -75,6 +76,7 @@ app.get('/stats', HomeController.stats);
 
 // Core routes with specific rate limiting
 app.use('/upload', apiLimiter, uploadRoutes);
+app.use('/upload/chunk', chunkedUploadRoutes);
 app.use('/files', fileLimiter, fileRoutes);
 app.use('/f', fileLimiter, fileRoutes);
 app.use('/public', fileLimiter, publicRoutes);

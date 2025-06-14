@@ -159,8 +159,20 @@ class OttoUploader {
       uploadedBy = 'script-user',
       generateThumbnails = false,
       metadata = null,
-      useUploadToken = false
+      useUploadToken = false,
+      forceChunked = false,
+      chunkThreshold = 100 * 1024 * 1024 // 100MB default
     } = options;
+
+    // Determine if we should use chunked upload
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+    const hasLargeFiles = files.some(file => file.size > chunkThreshold);
+    const shouldUseChunked = forceChunked || hasLargeFiles;
+
+    if (shouldUseChunked) {
+      this.log('Using chunked upload for large files', 'info');
+      return await this.uploadFilesChunked(files, options);
+    }
 
     let uploadToken = null;
     let authToken = this.token;
@@ -346,6 +358,239 @@ class OttoUploader {
       throw error;
     }
   }
+
+  /**
+   * Upload files using chunked upload API
+   */
+  async uploadFilesChunked(files, options = {}) {
+    const {
+      context = 'general',
+      uploadedBy = 'script-user',
+      generateThumbnails = false,
+      metadata = null,
+      useUploadToken = false
+    } = options;
+
+    let uploadToken = null;
+    let authToken = this.token;
+
+    // If using upload token flow, generate token first
+    if (useUploadToken) {
+      uploadToken = await this.generateUploadToken({
+        context,
+        uploadedBy,
+        maxFiles: files.length,
+        maxSize: files.reduce((sum, file) => sum + file.size, 0) + 1024 * 1024 // Add 1MB buffer
+      });
+      authToken = uploadToken.token;
+    }
+
+    const results = [];
+
+    for (const file of files) {
+      this.log(`Starting chunked upload for: ${file.name} (${this.formatBytes(file.size)})`, 'info');
+      
+      try {
+        const result = await this.uploadSingleFileChunked(file, {
+          context,
+          uploadedBy,
+          generateThumbnails,
+          metadata,
+          authToken,
+          useUploadToken
+        });
+        
+        results.push(result);
+        this.log(`✓ Completed: ${file.name}`, 'success');
+        
+      } catch (error) {
+        this.log(`✗ Failed: ${file.name} - ${error.message}`, 'error');
+        throw error;
+      }
+    }
+
+    return {
+      files: results,
+      count: results.length,
+      totalSize: results.reduce((sum, file) => sum + file.fileSize, 0)
+    };
+  }
+
+  /**
+   * Upload a single file using chunked upload
+   */
+  async uploadSingleFileChunked(file, options) {
+    const { context, uploadedBy, generateThumbnails, metadata, authToken, useUploadToken } = options;
+
+    // Step 1: Initialize upload session
+    const sessionData = await this.initializeChunkedUpload(file, {
+      context,
+      uploadedBy,
+      metadata,
+      authToken,
+      useUploadToken
+    });
+
+    const { sessionId, chunkSize, totalChunks } = sessionData;
+
+    this.log(`Initialized session ${sessionId} with ${totalChunks} chunks of ${this.formatBytes(chunkSize)}`, 'debug');
+
+    // Step 2: Upload chunks
+    await this.uploadChunks(file, sessionId, chunkSize, totalChunks, authToken);
+
+    // Step 3: Complete upload
+    const result = await this.completeChunkedUpload(sessionId, authToken);
+
+    return result.file;
+  }
+
+  /**
+   * Initialize chunked upload session
+   */
+  async initializeChunkedUpload(file, options) {
+    const { context, uploadedBy, metadata, authToken, useUploadToken } = options;
+
+    const payload = {
+      originalFilename: file.name,
+      totalSize: file.size,
+      mimeType: file.mimeType
+    };
+
+    if (!useUploadToken) {
+      payload.context = context;
+      payload.uploadedBy = uploadedBy;
+    }
+
+    if (metadata) {
+      payload.metadata = metadata;
+    }
+
+    const response = await fetch(`${this.baseUrl}/upload/chunk/init`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to initialize chunked upload: ${response.status} ${error}`);
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  /**
+   * Upload all chunks for a file
+   */
+  async uploadChunks(file, sessionId, chunkSize, totalChunks, authToken) {
+    const filePath = file.path;
+    const fileHandle = fs.openSync(filePath, 'r');
+
+    try {
+      // Upload chunks with some concurrency but not too much to avoid overwhelming the server
+      const maxConcurrent = 3;
+      let currentChunk = 0;
+      const activeUploads = new Set();
+
+      while (currentChunk < totalChunks) {
+        // Start uploads up to maxConcurrent
+        while (activeUploads.size < maxConcurrent && currentChunk < totalChunks) {
+          const chunkIndex = currentChunk++;
+          const uploadPromise = this.uploadSingleChunk(
+            fileHandle, 
+            sessionId, 
+            chunkIndex, 
+            chunkSize, 
+            authToken
+          );
+          
+          activeUploads.add(uploadPromise);
+          
+          uploadPromise
+            .then(() => {
+              activeUploads.delete(uploadPromise);
+              const progress = Math.round((chunkIndex + 1) / totalChunks * 100);
+              this.log(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded (${progress}%)`, 'debug');
+            })
+            .catch(error => {
+              activeUploads.delete(uploadPromise);
+              throw error;
+            });
+        }
+
+        // Wait for at least one upload to complete before starting more
+        if (activeUploads.size > 0) {
+          await Promise.race(activeUploads);
+        }
+      }
+
+      // Wait for all remaining uploads to complete
+      await Promise.all(activeUploads);
+
+    } finally {
+      fs.closeSync(fileHandle);
+    }
+  }
+
+  /**
+   * Upload a single chunk
+   */
+  async uploadSingleChunk(fileHandle, sessionId, chunkIndex, chunkSize, authToken) {
+    const buffer = Buffer.alloc(chunkSize);
+    const position = chunkIndex * chunkSize;
+    const bytesRead = fs.readSync(fileHandle, buffer, 0, chunkSize, position);
+    
+    // Trim buffer to actual bytes read for last chunk
+    const chunkData = bytesRead < chunkSize ? buffer.slice(0, bytesRead) : buffer;
+
+    const form = new FormData();
+    form.append('chunk', chunkData, {
+      filename: `chunk-${chunkIndex}`,
+      contentType: 'application/octet-stream'
+    });
+
+    const response = await fetch(`${this.baseUrl}/upload/chunk/${sessionId}/${chunkIndex}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        ...form.getHeaders()
+      },
+      body: form
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to upload chunk ${chunkIndex}: ${response.status} ${error}`);
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  /**
+   * Complete chunked upload
+   */
+  async completeChunkedUpload(sessionId, authToken) {
+    const response = await fetch(`${this.baseUrl}/upload/chunk/${sessionId}/complete`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to complete chunked upload: ${response.status} ${error}`);
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
   async testConnection() {
     try {
       this.log('Testing connection to Otto server...', 'debug');
@@ -399,6 +644,8 @@ program
   .option('-m, --metadata <json>', 'Additional metadata as JSON string')
   .option('--thumbnails', 'Generate thumbnails for images', false)
   .option('--upload-token', 'Use upload token flow (requires service token)', false)
+  .option('--chunked', 'Force chunked upload for all files', false)
+  .option('--chunk-threshold <size>', 'File size threshold for auto chunked upload (MB)', '100')
   .option('-v, --verbose', 'Verbose logging', false)
   .option('--stats', 'Show upload statistics after upload', false)
   .option('--test-only', 'Only test connection without uploading', false);
@@ -453,7 +700,9 @@ program.action(async (files, options) => {
       uploadedBy: options.uploadedBy,
       generateThumbnails: options.thumbnails,
       metadata,
-      useUploadToken: options.uploadToken
+      useUploadToken: options.uploadToken,
+      forceChunked: options.chunked,
+      chunkThreshold: parseInt(options.chunkThreshold) * 1024 * 1024 // Convert MB to bytes
     });
 
     // Display results
