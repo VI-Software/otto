@@ -227,12 +227,31 @@ class ChunkedUploadController {
   /**
    * Complete chunked upload (assemble file)
    * POST /api/upload/chunk/:sessionId/complete
-   */
-  completeUpload = asyncHandler(async (req, res) => {
+   */  completeUpload = asyncHandler(async (req, res) => {
     const { sessionId } = req.params;
 
     try {
       const processedFile = await ChunkedUploadService.assembleFile(sessionId);
+
+      // Debug logging to see what we got back
+      logger.debug('Assembled file object:', {
+        sessionId,
+        processedFile: processedFile ? {
+          id: processedFile.id,
+          file_hash: processedFile.file_hash,
+          original_name: processedFile.original_name,
+          hasFileHash: !!processedFile.file_hash,
+          keys: Object.keys(processedFile || {})
+        } : 'null'
+      });
+
+      if (!processedFile) {
+        throw new Error('No file was returned from assembleFile');
+      }
+
+      if (!processedFile.file_hash) {
+        throw new Error('Assembled file is missing file_hash property');
+      }
 
       // Format response similar to regular upload
       const hashPrefix = processedFile.file_hash.substring(0, 12);
