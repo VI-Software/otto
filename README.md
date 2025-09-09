@@ -37,7 +37,7 @@ Otto is a secure, efficient file server designed for the VI Software Platform. I
 ### Prerequisites
 
 - Node.js >= 22.0.0
-- PostgreSQL >= 12
+- PostgreSQL >= 16
 - npm or yarn
 
 ### Setup
