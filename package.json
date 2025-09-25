@@ -1,9 +1,10 @@
 {
   "name": "otto",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The simple and efficient file server",
   "main": "src/server.js",
-  "type": "module",  "scripts": {
+  "type": "module",
+  "scripts": {
     "start": "node start.js",
     "dev": "nodemon start.js",
     "test": "jest",
@@ -11,7 +12,8 @@
     "test:quick": "node test-otto.js quick",
     "test:chunked": "node test-chunked-upload.js",
     "test:routes": "node test-routes.js",
-    "seed": "node src/scripts/seed.js"
+    "seed": "node src/scripts/seed.js",
+    "lint": "eslint . --ext .js"
   },
   "keywords": [
     "file-upload",
@@ -44,11 +46,10 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
-    "nodemon": "^3.0.2",
-    "supertest": "^6.3.3"
+    "eslint": "^9.36.0",
+    "nodemon": "^3.0.2"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.0.0"
   }
 }
