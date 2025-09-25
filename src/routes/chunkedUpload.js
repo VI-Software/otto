@@ -1,22 +1,22 @@
-import express from 'express';
-import ChunkedUploadController from '../controllers/ChunkedUploadController.js';
-import { authenticate } from '../middleware/auth.js';
-import { uploadLimiter, strictUploadLimiter } from '../middleware/rateLimiter.js';
+import express from 'express'
+import ChunkedUploadController from '../controllers/ChunkedUploadController.js'
+import { authenticate } from '../middleware/auth.js'
+import { uploadLimiter, strictUploadLimiter } from '../middleware/rateLimiter.js'
 import { 
-  uploadSingleChunk, 
-  handleChunkUploadError, 
-  validateChunkParams,
-  validateSessionInit 
-} from '../middleware/chunkUpload.js';
+    uploadSingleChunk, 
+    handleChunkUploadError, 
+    validateChunkParams,
+    validateSessionInit 
+} from '../middleware/chunkUpload.js'
 
-const router = express.Router();
+const router = express.Router()
 
 /**
  * GET /api/upload/chunk/config
  * Get chunked upload configuration
  * No authentication required for config endpoint
  */
-router.get('/config', ChunkedUploadController.getConfig);
+router.get('/config', ChunkedUploadController.getConfig)
 
 /**
  * POST /api/upload/chunk/init
@@ -24,41 +24,41 @@ router.get('/config', ChunkedUploadController.getConfig);
  * Supports same authentication methods as regular upload
  */
 router.post('/init', 
-  uploadLimiter,
-  authenticate,
-  validateSessionInit,
-  ChunkedUploadController.initializeUpload
-);
+    uploadLimiter,
+    authenticate,
+    validateSessionInit,
+    ChunkedUploadController.initializeUpload
+)
 
 /**
  * GET /api/upload/chunk/:sessionId/status
  * Get upload session status and missing chunks
  */
 router.get('/:sessionId/status',
-  uploadLimiter,
-  authenticate,
-  ChunkedUploadController.getSessionStatus
-);
+    uploadLimiter,
+    authenticate,
+    ChunkedUploadController.getSessionStatus
+)
 
 /**
  * POST /api/upload/chunk/:sessionId/complete
  * Complete chunked upload (assemble final file)
  */
 router.post('/:sessionId/complete',
-  uploadLimiter,
-  authenticate,
-  ChunkedUploadController.completeUpload
-);
+    uploadLimiter,
+    authenticate,
+    ChunkedUploadController.completeUpload
+)
 
 /**
  * DELETE /api/upload/chunk/:sessionId
  * Cancel upload session and cleanup
  */
 router.delete('/:sessionId',
-  uploadLimiter,
-  authenticate,
-  ChunkedUploadController.cancelUpload
-);
+    uploadLimiter,
+    authenticate,
+    ChunkedUploadController.cancelUpload
+)
 
 /**
  * POST /api/upload/chunk/:sessionId/:chunkIndex
@@ -67,12 +67,12 @@ router.delete('/:sessionId',
  * Note: This route must come AFTER the specific routes above
  */
 router.post('/:sessionId/:chunkIndex',
-  strictUploadLimiter,
-  authenticate,
-  validateChunkParams,
-  uploadSingleChunk,
-  handleChunkUploadError,
-  ChunkedUploadController.uploadChunk
-);
+    strictUploadLimiter,
+    authenticate,
+    validateChunkParams,
+    uploadSingleChunk,
+    handleChunkUploadError,
+    ChunkedUploadController.uploadChunk
+)
 
-export default router;
+export default router

@@ -1,25 +1,25 @@
 // Otto File Server Homepage Controller
-import { createRequire } from 'module';
-import FileModel from '../models/File.js';
+import { createRequire } from 'module'
+import FileModel from '../models/File.js'
 
-const require = createRequire(import.meta.url);
-const { version } = require('../../package.json');
+const require = createRequire(import.meta.url)
+const { version } = require('../../package.json')
 
 // Helper function for formatting bytes
 function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
 class HomeController {  async home(req, res) {
     try {
-      const showStats = process.env.SHOW_STATS !== 'false';
-      const stats = showStats ? await FileModel.getStats() : null;
+        const showStats = process.env.SHOW_STATS !== 'false'
+        const stats = showStats ? await FileModel.getStats() : null
       
-      const html = `
+        const html = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -147,40 +147,40 @@ class HomeController {  async home(req, res) {
     </div>
   </div>
 </body>
-</html>`;
+</html>`
 
-      res.setHeader('Content-Type', 'text/html');
-      res.send(html);
+        res.setHeader('Content-Type', 'text/html')
+        res.send(html)
     } catch (error) {
-      res.status(500).json({ 
-        error: 'Failed to load homepage',
-        message: error.message 
-      });
+        res.status(500).json({ 
+            error: 'Failed to load homepage',
+            message: error.message 
+        })
     }  }
 
-  formatBytes(bytes) {
-    return formatBytes(bytes);
-  }
-
-  async stats(req, res) {
-    try {
-      const stats = await FileModel.getStats();
-      res.json({
-        success: true,
-        data: {
-          ...stats,
-          total_size_formatted: formatBytes(stats.total_size || 0),
-          version: version || '1.0.0'
-        }
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to get stats',
-        message: error.message
-      });
-    }
-  }
+formatBytes(bytes) {
+    return formatBytes(bytes)
 }
 
-export default new HomeController();
+async stats(req, res) {
+    try {
+        const stats = await FileModel.getStats()
+        res.json({
+            success: true,
+            data: {
+                ...stats,
+                total_size_formatted: formatBytes(stats.total_size || 0),
+                version: version || '1.0.0'
+            }
+        })
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get stats',
+            message: error.message
+        })
+    }
+}
+}
+
+export default new HomeController()
