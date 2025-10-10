@@ -1,6 +1,9 @@
 // Otto File Server Homepage Controller
 import { createRequire } from 'module'
+import fs from 'fs'
+import path from 'path'
 import FileModel from '../models/File.js'
+import logger from '../config/logger.js'
 
 const require = createRequire(import.meta.url)
 const { version } = require('../../package.json')
@@ -14,12 +17,56 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-class HomeController {  async home(req, res) {
-    try {
+class HomeController {  
+    async home(req, res) {
+        try {
+            const customHtmlFile = process.env.HOMEPAGE_HTML_FILE
+        
+            let html
+        
+            if (customHtmlFile) {
+                try {
+                    const filePath = path.resolve(process.cwd(), customHtmlFile)
+                
+                    const projectRoot = process.cwd()
+                    if (!filePath.startsWith(projectRoot)) {
+                        throw new Error('Custom homepage file must be within the project directory')
+                    }
+                
+                    if (!fs.existsSync(filePath)) {
+                        throw new Error(`Custom homepage file not found: ${filePath}`)
+                    }
+                
+                    html = fs.readFileSync(filePath, 'utf8')
+                    logger.info('Loaded custom homepage from file', { filePath })
+                
+                } catch (fileError) {
+                    logger.error('Failed to load custom homepage file, falling back to default', { 
+                        file: customHtmlFile, 
+                        error: fileError.message 
+                    })
+                    html = await this.getDefaultHtml()
+                }
+            } else {
+                html = await this.getDefaultHtml()
+            }
+        
+            res.setHeader('Content-Type', 'text/html')
+            res.send(html)
+        } catch (error) {
+            logger.error('Failed to load homepage', { error: error.message })
+            res.status(500).json({ 
+                error: 'Failed to load homepage',
+                message: error.message 
+            })
+        }  
+    }
+
+    async getDefaultHtml() {
         const showStats = process.env.SHOW_STATS !== 'false'
         const stats = showStats ? await FileModel.getStats() : null
-      
-        const html = `
+    
+        return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -148,39 +195,31 @@ class HomeController {  async home(req, res) {
   </div>
 </body>
 </html>`
-
-        res.setHeader('Content-Type', 'text/html')
-        res.send(html)
-    } catch (error) {
-        res.status(500).json({ 
-            error: 'Failed to load homepage',
-            message: error.message 
-        })
-    }  }
-
-formatBytes(bytes) {
-    return formatBytes(bytes)
-}
-
-async stats(req, res) {
-    try {
-        const stats = await FileModel.getStats()
-        res.json({
-            success: true,
-            data: {
-                ...stats,
-                total_size_formatted: formatBytes(stats.total_size || 0),
-                version: version || '1.0.0'
-            }
-        })
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get stats',
-            message: error.message
-        })
     }
-}
+
+    formatBytes(bytes) {
+        return formatBytes(bytes)
+    }
+
+    async stats(req, res) {
+        try {
+            const stats = await FileModel.getStats()
+            res.json({
+                success: true,
+                data: {
+                    ...stats,
+                    total_size_formatted: formatBytes(stats.total_size || 0),
+                    version: version || '1.0.0'
+                }
+            })
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                error: 'Failed to get stats',
+                message: error.message
+            })
+        }
+    }
 }
 
 export default new HomeController()

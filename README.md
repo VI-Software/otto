@@ -127,6 +127,18 @@ RATE_LIMIT_WINDOW_MS=900000  # 15 minutes
 RATE_LIMIT_MAX_REQUESTS=100
 ```
 
+### UI Customization
+```env
+# Custom homepage HTML file (optional)
+# If set, loads a custom HTML file for the homepage instead of the default
+# The file path must be within the project directory for security
+# Example: HOMEPAGE_HTML_FILE=home.html
+HOMEPAGE_HTML_FILE=
+
+# Show server statistics on homepage (default: true)
+SHOW_STATS=true
+```
+
 ### Chunked Upload
 ```env
 # Chunk size in bytes (default: 25MB)

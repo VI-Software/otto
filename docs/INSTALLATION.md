@@ -6,8 +6,8 @@ This guide walks you through setting up Otto from scratch, including database co
 
 Before installing Otto, ensure you have the following installed:
 
-- **Node.js** >= 22.0.0
-- **PostgreSQL** >= 12
+- **Node.js** >= 24.9.0
+- **PostgreSQL** >= 16
 - **npm** or **yarn**
 - **Git** (for cloning the repository)
 
@@ -162,6 +162,15 @@ image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,application
 |----------|-------------|---------|----------|
 | `LOG_LEVEL` | Logging level | `info` | No |
 | `LOG_FILE` | Log file path | `./logs/otto.log` | No |
+
+#### UI Configuration
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `HOMEPAGE_HTML_FILE` | Custom homepage HTML file path (relative to project root) | - | No |
+| `SHOW_STATS` | Show server statistics on homepage | `true` | No |
+
+**Custom Homepage**: Set `HOMEPAGE_HTML_FILE` to load a custom HTML file for the homepage instead of the default. The file must be within the project directory for security. Example: `home.html`
 
 ### Database Setup (Detailed)
 
