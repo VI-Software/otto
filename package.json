@@ -21,7 +21,7 @@
     "express",
     "vi-software"
   ],
-  "author": "VI Software Platform",
+  "author": "VI Software",
   "license": "AGPL-3.0",
   "dependencies": {
     "bcrypt": "^5.1.1",
