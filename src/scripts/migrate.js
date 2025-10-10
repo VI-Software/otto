@@ -80,6 +80,24 @@ const migrations = [
       DROP INDEX IF EXISTS idx_files_hash_size;
       ALTER TABLE files DROP COLUMN IF EXISTS file_hash;
     `
+    },
+    {
+        version: 6,
+        name: 'add_suspension_support',
+        up: `
+      ALTER TABLE files ADD COLUMN IF NOT EXISTS suspended BOOLEAN DEFAULT FALSE;
+      ALTER TABLE files ADD COLUMN IF NOT EXISTS suspension_reason TEXT;
+      ALTER TABLE files ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE files ADD COLUMN IF NOT EXISTS suspended_by VARCHAR(100);
+      CREATE INDEX IF NOT EXISTS idx_files_suspended ON files(suspended) WHERE suspended = TRUE;
+    `,
+        down: `
+      DROP INDEX IF EXISTS idx_files_suspended;
+      ALTER TABLE files DROP COLUMN IF EXISTS suspended;
+      ALTER TABLE files DROP COLUMN IF EXISTS suspension_reason;
+      ALTER TABLE files DROP COLUMN IF EXISTS suspended_at;
+      ALTER TABLE files DROP COLUMN IF EXISTS suspended_by;
+    `
     }
 ]
 

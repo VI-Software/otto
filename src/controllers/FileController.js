@@ -449,6 +449,15 @@ class FileController {
     servePublicFileResponse = (file, req, res, routeParams) => {
         const { download, thumbnail } = req.query
 
+        if (file.suspended) {
+            return res.status(451).json({
+                error: 'Content unavailable due to copyright complaint',
+                code: 'CONTENT_SUSPENDED',
+                suspended_at: file.suspended_at,
+                suspension_reason: file.suspension_reason
+            })
+        }
+
         try {
             let filePath = file.file_path
             let mimeType = file.mime_type
@@ -717,6 +726,156 @@ class FileController {
 
             throw error
         }
+    })
+
+    /**
+   * Suspend file access due to copyright complaint
+   */
+    suspendFile = asyncHandler(async (req, res) => {
+        const { fileId } = req.params
+        const { reason } = req.body
+
+        if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+            return res.status(400).json({
+                error: 'Suspension reason is required',
+                code: 'MISSING_SUSPENSION_REASON'
+            })
+        }
+
+        const file = await FileService.getFile(fileId, { trackAccess: false })
+    
+        if (!file) {
+            return res.status(404).json({
+                error: 'File not found',
+                code: 'FILE_NOT_FOUND'
+            })
+        }
+
+        if (file.suspended) {
+            return res.status(409).json({
+                error: 'File is already suspended',
+                code: 'FILE_ALREADY_SUSPENDED'
+            })
+        }
+
+        const suspendedBy = req.serviceAuthenticated ? 'service' : req.user?.id || 'system'
+        const suspendedFile = await FileService.suspendFile(fileId, reason.trim(), suspendedBy)
+    
+        if (!suspendedFile) {
+            return res.status(404).json({
+                error: 'File not found or already suspended',
+                code: 'FILE_NOT_FOUND'
+            })
+        }
+
+        logger.info('File suspended via API', { 
+            fileId, 
+            reason: reason.trim(),
+            suspendedBy 
+        })
+
+        res.json({
+            success: true,
+            message: 'File suspended successfully',
+            file: {
+                id: suspendedFile.id,
+                suspended: suspendedFile.suspended,
+                suspension_reason: suspendedFile.suspension_reason,
+                suspended_at: suspendedFile.suspended_at,
+                suspended_by: suspendedFile.suspended_by
+            }
+        })
+    })
+
+    /**
+   * Unsuspend file access
+   */
+    unsuspendFile = asyncHandler(async (req, res) => {
+        const { fileId } = req.params
+
+        const file = await FileService.getFile(fileId, { trackAccess: false })
+    
+        if (!file) {
+            return res.status(404).json({
+                error: 'File not found',
+                code: 'FILE_NOT_FOUND'
+            })
+        }
+
+        if (!file.suspended) {
+            return res.status(409).json({
+                error: 'File is not suspended',
+                code: 'FILE_NOT_SUSPENDED'
+            })
+        }
+
+        const unsuspendedFile = await FileService.unsuspendFile(fileId)
+    
+        if (!unsuspendedFile) {
+            return res.status(404).json({
+                error: 'File not found or not suspended',
+                code: 'FILE_NOT_FOUND'
+            })
+        }
+
+        logger.info('File unsuspended via API', { 
+            fileId,
+            unsuspendedBy: req.serviceAuthenticated ? 'service' : req.user?.id || 'system'
+        })
+
+        res.json({
+            success: true,
+            message: 'File unsuspended successfully',
+            file: {
+                id: unsuspendedFile.id,
+                suspended: unsuspendedFile.suspended
+            }
+        })
+    })
+
+    /**
+   * Delete file permanently due to copyright violation
+   */
+    deleteFileForCopyright = asyncHandler(async (req, res) => {
+        const { fileId } = req.params
+        const { reason } = req.body
+
+        if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+            return res.status(400).json({
+                error: 'Deletion reason is required',
+                code: 'MISSING_DELETION_REASON'
+            })
+        }
+
+        const file = await FileService.getFile(fileId, { trackAccess: false })
+    
+        if (!file) {
+            return res.status(404).json({
+                error: 'File not found',
+                code: 'FILE_NOT_FOUND'
+            })
+        }
+
+        const deletedBy = req.serviceAuthenticated ? 'service' : req.user?.id || 'system'
+        const deleted = await FileService.deleteFileForCopyright(fileId, reason.trim(), deletedBy)
+    
+        if (!deleted) {
+            return res.status(404).json({
+                error: 'File not found',
+                code: 'FILE_NOT_FOUND'
+            })
+        }
+
+        logger.info('File deleted for copyright violation via API', { 
+            fileId, 
+            reason: reason.trim(),
+            deletedBy 
+        })
+
+        res.json({
+            success: true,
+            message: 'File deleted successfully due to copyright violation'
+        })
     })
 }
 

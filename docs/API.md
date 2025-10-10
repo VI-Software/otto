@@ -299,7 +299,101 @@ GET /upload/context/{context}
 - `limit` (number) - Maximum files to return (default: 50)
 - `offset` (number) - Number of files to skip (default: 0)
 
-### 5. Statistics
+### 5. Copyright Management
+
+#### Suspend File Access
+Temporarily suspend access to a file due to copyright complaint.
+
+```
+POST /files/{fileId}/suspend
+```
+
+**Authentication:** Admin/Service Token required
+
+**Request Body:**
+```json
+{
+  "reason": "DMCA takedown notice received"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "File suspended successfully",
+  "file": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "suspended": true,
+    "suspension_reason": "DMCA takedown notice received",
+    "suspended_at": "2023-01-01T00:00:00.000Z",
+    "suspended_by": "admin"
+  }
+}
+```
+
+**Error Responses:**
+- `400` - Missing suspension reason
+- `404` - File not found
+- `409` - File already suspended
+- `403` - Admin access required
+
+#### Unsuspend File Access
+Restore access to a suspended file.
+
+```
+POST /files/{fileId}/unsuspend
+```
+
+**Authentication:** Admin/Service Token required
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "File unsuspended successfully",
+  "file": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "suspended": false
+  }
+}
+```
+
+**Error Responses:**
+- `404` - File not found
+- `409` - File not suspended
+- `403` - Admin access required
+
+#### Delete File for Copyright Violation
+Permanently delete a file due to copyright violation.
+
+```
+DELETE /files/{fileId}/copyright
+```
+
+**Authentication:** Admin/Service Token required
+
+**Request Body:**
+```json
+{
+  "reason": "Copyright infringement confirmed"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "File deleted successfully due to copyright violation"
+}
+```
+
+**Error Responses:**
+- `400` - Missing deletion reason
+- `404` - File not found
+- `403` - Admin access required
+
+### 6. Statistics
 
 #### Upload Statistics
 Get server-wide upload statistics.
@@ -377,6 +471,12 @@ All API errors follow a consistent format:
 | `TOO_MANY_FILES` | Too many files in single upload request |
 | `NO_FILES` | No files provided in upload request |
 | `VALIDATION_ERROR` | Request validation failed |
+| `MISSING_SUSPENSION_REASON` | Suspension reason is required |
+| `FILE_ALREADY_SUSPENDED` | File is already suspended |
+| `FILE_NOT_SUSPENDED` | File is not suspended |
+| `MISSING_DELETION_REASON` | Deletion reason is required |
+| `ADMIN_ACCESS_REQUIRED` | Admin privileges required |
+| `CONTENT_SUSPENDED` | Content unavailable due to copyright complaint |
 
 ## Rate Limiting
 

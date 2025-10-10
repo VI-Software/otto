@@ -386,6 +386,14 @@ class FileService {
             // Soft delete in database
             await FileModel.softDelete(fileId)
 
+            if (!this.validateFilePath(file.file_path)) {
+                logger.error('Invalid file path detected during deletion, skipping file removal', { 
+                    fileId, 
+                    filePath: file.file_path 
+                })
+                return true // Return true since DB deletion succeeded
+            }
+
             // Remove actual file
             if (fs.existsSync(file.file_path)) {
                 fs.unlinkSync(file.file_path)
@@ -633,6 +641,160 @@ class FileService {
             return deletedFiles
         } catch (error) {
             logger.error('Failed to cleanup old files', { error: error.message })
+            throw error
+        }
+    }
+
+    /**
+   * Validate file path for security (prevent directory traversal)
+   * @param {string} filePath - File path to validate
+   * @returns {boolean} True if path is safe
+   */
+    validateFilePath(filePath) {
+        try {
+            // Resolve the path to prevent directory traversal
+            const resolvedPath = path.resolve(filePath)
+            const normalizedPath = path.normalize(filePath)
+            
+            // Check for dangerous patterns
+            if (normalizedPath.includes('..') || 
+                normalizedPath.startsWith('/') || 
+                normalizedPath.startsWith('\\') ||
+                resolvedPath !== normalizedPath) {
+                logger.warn('Potentially dangerous file path detected', { 
+                    originalPath: filePath,
+                    resolvedPath,
+                    normalizedPath 
+                })
+                return false
+            }
+            
+            // Ensure path is within expected upload directory
+            const uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads')
+            const resolvedUploadDir = path.resolve(uploadDir)
+            
+            if (!resolvedPath.startsWith(resolvedUploadDir)) {
+                logger.warn('File path outside upload directory', { 
+                    filePath: resolvedPath,
+                    uploadDir: resolvedUploadDir 
+                })
+                return false
+            }
+            
+            return true
+        } catch (error) {
+            logger.error('Error validating file path', { filePath, error: error.message })
+            return false
+        }
+    }
+
+    /**
+   * Suspend file access due to copyright complaint
+   * @param {string} fileId - File ID to suspend
+   * @param {string} reason - Reason for suspension
+   * @param {string} suspendedBy - User/service that suspended the file
+   * @returns {Object|null} Updated file record
+   */
+    async suspendFile(fileId, reason, suspendedBy = 'system') {
+        try {
+            const file = await FileModel.findById(fileId)
+      
+            if (!file) {
+                return null
+            }
+
+            if (file.suspended) {
+                logger.warn('File already suspended', { fileId })
+                return file
+            }
+
+            const suspendedFile = await FileModel.suspendFile(fileId, reason, suspendedBy)
+            logger.info('File suspended for copyright reasons', { fileId, reason, suspendedBy })
+            return suspendedFile
+        } catch (error) {
+            logger.error('Failed to suspend file', { fileId, error: error.message })
+            throw error
+        }
+    }
+
+    /**
+   * Unsuspend file access
+   * @param {string} fileId - File ID to unsuspend
+   * @returns {Object|null} Updated file record
+   */
+    async unsuspendFile(fileId) {
+        try {
+            const file = await FileModel.findById(fileId)
+      
+            if (!file) {
+                return null
+            }
+
+            if (!file.suspended) {
+                logger.warn('File not suspended', { fileId })
+                return file
+            }
+
+            const unsuspendedFile = await FileModel.unsuspendFile(fileId)
+            logger.info('File unsuspended', { fileId })
+            return unsuspendedFile
+        } catch (error) {
+            logger.error('Failed to unsuspend file', { fileId, error: error.message })
+            throw error
+        }
+    }
+
+    /**
+   * Check if file is suspended
+   * @param {string} fileId - File ID to check
+   * @returns {boolean} Suspension status
+   */
+    async isSuspended(fileId) {
+        return await FileModel.isSuspended(fileId)
+    }
+
+    /**
+   * Delete file permanently due to copyright violation
+   * @param {string} fileId - File ID to delete
+   * @param {string} reason - Reason for deletion
+   * @param {string} deletedBy - User/service that deleted the file
+   * @returns {boolean} Success status
+   */
+    async deleteFileForCopyright(fileId, reason, deletedBy = 'system') {
+        try {
+            const file = await FileModel.findById(fileId)
+      
+            if (!file) {
+                return false
+            }
+
+            // Log the copyright deletion reason
+            logger.info('File deleted due to copyright violation', { 
+                fileId, 
+                reason, 
+                deletedBy,
+                originalName: file.original_name,
+                uploadedBy: file.uploaded_by 
+            })
+
+            return await this.deleteFile(fileId)
+        } catch (error) {
+            logger.error('Failed to delete file for copyright', { fileId, error: error.message })
+            throw error
+        }
+    }
+
+    /**
+   * Get suspended files
+   * @param {number} limit - Maximum number of files to return
+   * @param {number} offset - Offset for pagination
+   * @returns {Array} Suspended files
+   */
+    async getSuspendedFiles(limit = 50, offset = 0) {
+        try {
+            return await FileModel.findSuspendedFiles(limit, offset)
+        } catch (error) {
+            logger.error('Failed to get suspended files', { error: error.message })
             throw error
         }
     }

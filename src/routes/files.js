@@ -1,7 +1,7 @@
 import express from 'express'
 import FileController from '../controllers/FileController.js'
 // eslint-disable-next-line no-unused-vars
-import { authenticate, authenticateService } from '../middleware/auth.js'
+import { authenticate, authenticateService, authenticateAdmin } from '../middleware/auth.js'
 
 const router = express.Router()
 
@@ -44,5 +44,23 @@ router.get('/:context/:filename', authenticate, FileController.serveFileByContex
  * This route is last to avoid conflicts with other patterns
  */
 router.get('/:fileId', authenticate, FileController.serveFile)
+
+/**
+ * POST /files/:fileId/suspend
+ * Suspend file access due to copyright complaint (admin/service only)
+ */
+router.post('/:fileId/suspend', authenticateAdmin, FileController.suspendFile)
+
+/**
+ * POST /files/:fileId/unsuspend
+ * Unsuspend file access (admin/service only)
+ */
+router.post('/:fileId/unsuspend', authenticateAdmin, FileController.unsuspendFile)
+
+/**
+ * DELETE /files/:fileId/copyright
+ * Delete file permanently due to copyright violation (admin/service only)
+ */
+router.delete('/:fileId/copyright', authenticateAdmin, FileController.deleteFileForCopyright)
 
 export default router

@@ -189,3 +189,62 @@ export const authenticate = (req, res, next) => {
         })
     }
 }
+
+export const authenticateAdmin = (req, res, next) => {
+    const authHeader = req.headers.authorization
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({
+            error: 'Missing or invalid authorization header',
+            code: 'MISSING_AUTH_HEADER'
+        })
+    }
+
+    const token = authHeader.substring(7)
+    const serviceToken = process.env.SERVICE_TOKEN
+
+    if (serviceToken && token === serviceToken) {
+        req.authenticationType = 'service'
+        req.serviceAuthenticated = true
+        req.adminAuthenticated = true
+        logger.debug('Service authentication successful for admin action', { ip: req.ip })
+        return next()
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET)
+        
+        if (decoded.role === 'admin' || decoded.isAdmin === true) {
+            req.user = decoded
+            req.authenticationType = 'admin_jwt'
+            req.adminAuthenticated = true
+            logger.debug('Admin JWT authentication successful', { 
+                userId: decoded.sub || decoded.id,
+                ip: req.ip 
+            })
+            return next()
+        } else {
+            return res.status(403).json({
+                error: 'Admin access required',
+                code: 'ADMIN_ACCESS_REQUIRED'
+            })
+        }
+    } catch (error) {
+        logger.warn('Admin authentication failed', { 
+            error: error.message,
+            ip: req.ip 
+        })
+
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                error: 'Token expired',
+                code: 'TOKEN_EXPIRED'
+            })
+        }
+
+        return res.status(401).json({
+            error: 'Invalid admin authentication credentials',
+            code: 'INVALID_ADMIN_CREDENTIALS'
+        })
+    }
+}

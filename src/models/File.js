@@ -273,6 +273,77 @@ async cleanupOldFiles(daysOld = 90) {
         throw error
     }
 }
+
+async suspendFile(fileId, reason, suspendedBy = 'system') {
+    const query = `
+      UPDATE files 
+      SET suspended = TRUE, suspension_reason = $2, suspended_at = NOW(), suspended_by = $3
+      WHERE id = $1 AND deleted_at IS NULL AND suspended = FALSE
+      RETURNING *
+    `
+    
+    try {
+        const result = await database.query(query, [fileId, reason, suspendedBy])
+        if (result.rows.length > 0) {
+            logger.info('File suspended', { fileId, reason, suspendedBy })
+            return result.rows[0]
+        }
+        return null
+    } catch (error) {
+        logger.error('Failed to suspend file', { error: error.message, fileId })
+        throw error
+    }
+}
+
+async unsuspendFile(fileId) {
+    const query = `
+      UPDATE files 
+      SET suspended = FALSE, suspension_reason = NULL, suspended_at = NULL, suspended_by = NULL
+      WHERE id = $1 AND deleted_at IS NULL AND suspended = TRUE
+      RETURNING *
+    `
+    
+    try {
+        const result = await database.query(query, [fileId])
+        if (result.rows.length > 0) {
+            logger.info('File unsuspended', { fileId })
+            return result.rows[0]
+        }
+        return null
+    } catch (error) {
+        logger.error('Failed to unsuspend file', { error: error.message, fileId })
+        throw error
+    }
+}
+
+async isSuspended(fileId) {
+    const query = 'SELECT suspended FROM files WHERE id = $1 AND deleted_at IS NULL'
+    
+    try {
+        const result = await database.query(query, [fileId])
+        return result.rows[0]?.suspended || false
+    } catch (error) {
+        logger.error('Failed to check suspension status', { error: error.message, fileId })
+        throw error
+    }
+}
+
+async findSuspendedFiles(limit = 50, offset = 0) {
+    const query = `
+      SELECT * FROM files 
+      WHERE suspended = TRUE AND deleted_at IS NULL
+      ORDER BY suspended_at DESC
+      LIMIT $1 OFFSET $2
+    `
+    
+    try {
+        const result = await database.query(query, [limit, offset])
+        return result.rows
+    } catch (error) {
+        logger.error('Failed to find suspended files', { error: error.message })
+        throw error
+    }
+}
 }
 
 export default new FileModel()
