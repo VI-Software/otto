@@ -38,7 +38,20 @@ class HomeController {
                     }
                 
                     html = fs.readFileSync(filePath, 'utf8')
-                    logger.info('Loaded custom homepage from file', { filePath })
+                    
+                    const showStats = process.env.SHOW_STATS !== 'false'
+                    const stats = showStats ? await FileModel.getStats() : null
+                    
+                    html = html.replace(/\$\{showStats\s*\?\s*([^:]+)\s*:\s*([^}]+)\}/g, showStats ? '$1' : '$2')
+                    html = html.replace(/\$\{stats\.(\w+)\s*\|\|\s*([^}]+)\}/g, (match, prop, fallback) => {
+                        return stats && stats[prop] !== null && stats[prop] !== undefined ? stats[prop] : fallback
+                    })
+                    html = html.replace(/\$\{formatBytes\(([^}]+)\)\}/g, (match, bytes) => {
+                        return formatBytes(parseInt(bytes) || 0)
+                    })
+                    html = html.replace(/\$\{version\s*\|\|\s*([^}]+)\}/g, version || '$1')
+                    
+                    logger.info('Loaded and processed custom homepage from file', { filePath })
                 
                 } catch (fileError) {
                     logger.error('Failed to load custom homepage file, falling back to default', { 
